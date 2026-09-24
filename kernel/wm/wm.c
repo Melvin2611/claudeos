@@ -1531,6 +1531,10 @@ void wm_init(void) {
     syscall_register(SYS_SET_RESOLUTION, sys_set_resolution);
     syscall_register(SYS_LAUNCH, sys_launch);
     wm.ready = true;
+    extern void snd_set_volume(int v);
+    extern void snd_play_file(const char *path);
+    snd_set_volume((int)wm.cfg.volume);
+    if (wm.cfg.sounds) snd_play_file("/system/sounds/startup.wav");
     bootcon_disable();
     wm_damage_all();
     task_t *t = kthread_create("wm", wm_thread, 0);
