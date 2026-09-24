@@ -76,5 +76,8 @@ void gfx_blit_scaled(surface_t *dst, rect_t d, const surface_t *src, rect_t s, b
 void gfx_draw_image(surface_t *dst, int x, int y, const uint32_t *img, int w, int h);
 void gfx_draw_image_tinted(surface_t *dst, int x, int y, const uint32_t *img, int w, int h, uint32_t tint);
 
+/* opaque blit with rounded corners (corners: 1 TL, 2 TR, 4 BL, 8 BR); src is blitted whole at dx,dy */
+void gfx_blit_rounded(surface_t *dst, int dx, int dy, const surface_t *src, int w, int h, int r, int corners);
+
 /* soft drop shadow around rect r (drawn outside it) */
 void gfx_shadow(surface_t *s, rect_t r, int radius, int size, int strength, int offset_y);

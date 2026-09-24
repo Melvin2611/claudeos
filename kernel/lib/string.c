@@ -60,6 +60,13 @@ int strcasecmp(const char *a, const char *b) {
     while (*a && tolower(*a) == tolower(*b)) { a++; b++; }
     return tolower((uint8_t)*a) - tolower((uint8_t)*b);
 }
+int strncasecmp(const char *a, const char *b, size_t n) {
+    for (size_t i = 0; i < n; i++) {
+        int x = tolower((uint8_t)a[i]), y = tolower((uint8_t)b[i]);
+        if (x != y || !x) return x - y;
+    }
+    return 0;
+}
 char *strcpy(char *d, const char *s) { char *r = d; while ((*d++ = *s++)); return r; }
 char *strncpy(char *d, const char *s, size_t n) {
     size_t i = 0;

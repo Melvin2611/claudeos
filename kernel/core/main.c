@@ -8,6 +8,7 @@
 #include <vfs.h>
 #include <proc.h>
 #include <syscall.h>
+#include <input.h>
 #include "drivers.h"
 
 bootinfo_t bootinfo;
@@ -159,7 +160,11 @@ static int init_thread(void *arg) {
         if (pid > 0) proc_waitpid(pid, &status, 0);
         klog("[init] usertest pid %d exited with status %d\n", pid, status);
     }
+    bootcon_status("Starting input devices...");
+    ps2_init();
     bootcon_status("Loading desktop...");
+    extern void wm_init(void);
+    wm_init();
     if (cmdline_has("testpanic")) *(volatile uint64_t *)0xdead0000 = 1;
     klog("[boot] done\n");
     return 0;

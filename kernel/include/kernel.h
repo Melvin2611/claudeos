@@ -22,6 +22,7 @@
 #define P2V(p) ((void *)((uint64_t)(p) + PHYSMAP_BASE))
 #define V2P(v) ((uint64_t)(v) - PHYSMAP_BASE)
 
+#define ABS_DIFF(a, b) ((a) > (b) ? (a) - (b) : (b) - (a))
 #define MIN(a, b) ((a) < (b) ? (a) : (b))
 #define MAX(a, b) ((a) > (b) ? (a) : (b))
 #define ARRAY_SIZE(a) (sizeof(a) / sizeof((a)[0]))
@@ -42,6 +43,7 @@ size_t strnlen(const char *s, size_t n);
 int strcmp(const char *a, const char *b);
 int strncmp(const char *a, const char *b, size_t n);
 int strcasecmp(const char *a, const char *b);
+int strncasecmp(const char *a, const char *b, size_t n);
 char *strcpy(char *d, const char *s);
 char *strncpy(char *d, const char *s, size_t n);
 size_t strlcpy(char *d, const char *s, size_t n);

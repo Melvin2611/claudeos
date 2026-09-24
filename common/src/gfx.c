@@ -395,6 +395,34 @@ void gfx_blit_scaled(surface_t *dst, rect_t d, const surface_t *src, rect_t s, b
     }
 }
 
+/* opaque blit whose selected corners are rounded (anti-aliased against what is already in dst) */
+void gfx_blit_rounded(surface_t *dst, int dx, int dy, const surface_t *src, int w, int h, int r, int corners) {
+    int sx = 0, sy = 0;
+    int ox = dx, oy = dy;
+    if (!clip_blit(dst, &dx, &dy, src, &sx, &sy, &w, &h)) return;
+    for (int i = 0; i < h; i++) {
+        int yy = dy + i;
+        uint32_t *d = &dst->px[yy * dst->stride + dx];
+        const uint32_t *sp = &src->px[(sy + i) * src->stride + sx];
+        int ly = yy - oy;
+        bool top = ly < r && (corners & 3), bottom = ly >= src->h - r && (corners & 12);
+        if (!top && !bottom) {
+            memcpy(d, sp, w * 4);
+            continue;
+        }
+        for (int j = 0; j < w; j++) {
+            int lx = dx + j - ox;
+            int cov = 255;
+            bool left = lx < r, right = lx >= src->w - r;
+            if ((top && left && (corners & 1)) || (top && right && (corners & 2)) ||
+                (bottom && left && (corners & 4)) || (bottom && right && (corners & 8)))
+                cov = rrect_cov(lx, ly, 0, 0, src->w, src->h, r);
+            if (cov >= 255) d[j] = sp[j] | 0xFF000000u;
+            else if (cov > 0) d[j] = gfx_blend(d[j], sp[j], cov);
+        }
+    }
+}
+
 void gfx_shadow(surface_t *s, rect_t r, int radius, int size, int strength, int offset_y) {
     if (size <= 0 || strength <= 0) return;
     rect_t win = r;
