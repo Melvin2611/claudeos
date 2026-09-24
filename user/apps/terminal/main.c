@@ -540,7 +540,7 @@ int main(int argc, char **argv) {
     canvas = ui_canvas(win, 0, 0, W, H, draw, event);
     ui_set_anchor(canvas, A_ALL);
     ui_focus(win, canvas);
-    ui_set_cursor(win, CUR_TEXT);
+    canvas->cursor = CUR_TEXT;
     init_buffer();
 
     master = open("/dev/ptmx", O_RDWR);

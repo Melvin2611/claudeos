@@ -366,7 +366,10 @@ static void dispatch(ui_window_t *win, gui_event_t *ev) {
             }
             win->hover = target;
             if (target) ui_widget_invalidate(target);
-            if (!target || target->type != W_CANVAS) ui_set_cursor(win, target && target->type == W_TEXTBOX ? CUR_TEXT : CUR_ARROW);
+            int shape = CUR_ARROW;
+            if (target && target->cursor) shape = target->cursor;
+            else if (target && target->type == W_TEXTBOX) shape = CUR_TEXT;
+            ui_set_cursor(win, shape);
         }
         if (ev->type == EV_MOUSE_DOWN) {
             if (target && target->focusable && target->enabled) ui_focus(win, target);

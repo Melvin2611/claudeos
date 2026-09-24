@@ -153,7 +153,7 @@ class Machine:
         img.save(path)
         os.remove(ppm)
 
-    def key(self, combo, hold_ms=60):
+    def key(self, combo, hold_ms=15):
         keys = [{"type": "qcode", "data": k} for k in combo.split("-")] if combo != "-" else \
                [{"type": "qcode", "data": "minus"}]
         self.qmp.cmd("send-key", keys=keys, **{"hold-time": hold_ms})

@@ -1,0 +1,32 @@
+Welcome to ClaudeOS!
+====================
+
+ClaudeOS is a small 64-bit operating system written in C, with its own kernel,
+window manager and applications.
+
+Getting started
+---------------
+ * Click the logo in the bottom left corner (or press the Windows key) to open
+   the start menu. Type to search for an app.
+ * Double-click the icons on the desktop to start programs.
+ * Drag windows by their title bar. Drag a window to the left or right screen
+   edge to snap it, or to the top edge to maximize it.
+ * Right-click the desktop to change the wallpaper or open the settings.
+
+Keyboard shortcuts
+------------------
+ Win               Start menu
+ Alt+Tab           Switch windows
+ Alt+F4            Close window
+ Win+Left/Right    Snap window to the left/right half
+ Win+Up / Down     Maximize / restore or minimize
+ Win+D             Show desktop
+ Win+E             Open Files
+ Ctrl+Alt+T        Open a terminal
+ Ctrl+Shift+Esc    Task Manager
+ Print             Save a screenshot to /home
+
+Files in /home are stored on the hard disk (if one is attached), everything
+else lives in memory and is restored from the boot image at every start.
+
+Have fun!

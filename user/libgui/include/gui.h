@@ -87,6 +87,7 @@ struct ui_widget {
     int ival;                   /* checkbox state, slider value, list selection ... */
     int imin, imax;
     char glyph[24];
+    int cursor;                 /* mouse cursor shape over this widget (0 = default) */
     ui_window_t *win;
     ui_widget_t *next;
 };
