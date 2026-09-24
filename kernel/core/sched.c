@@ -151,9 +151,13 @@ static void reap(void) {
         reap_list = t->rq_next;
         if (t->is_user) {
             proc_release_resources(t);
-            /* the task struct stays as zombie until waited for */
-            vfree(t->kstack);
-            t->kstack = 0;
+            if (t->state == T_DEAD || t->waited) {
+                task_free(t);
+            } else {
+                /* the task struct stays as zombie until waited for */
+                vfree(t->kstack);
+                t->kstack = 0;
+            }
         } else {
             task_free(t);
         }

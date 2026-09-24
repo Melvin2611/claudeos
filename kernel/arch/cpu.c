@@ -28,6 +28,7 @@ static uint8_t nmi_stack[8192] __attribute__((aligned(16)));
 
 uint8_t fpu_initial_state[512] __attribute__((aligned(16)));
 char cpu_vendor[13];
+uint64_t cpu_mhz;
 static bool has_nx;
 
 extern void gdt_flush(dtr_t *gdtr);
@@ -131,4 +132,16 @@ void cpu_get_brand(char *out, size_t n) {
     char *s = brand;
     while (*s == ' ') s++;
     strlcpy(out, s, n);
+}
+
+/* estimate the TSC frequency using the PIT tick counter (call with interrupts enabled) */
+void cpu_measure_mhz(void) {
+    extern volatile uint64_t ticks;
+    uint64_t t0 = ticks;
+    while (ticks == t0) hlt();
+    uint64_t c0 = rdtsc();
+    t0 = ticks;
+    while (ticks < t0 + 50) hlt();
+    uint64_t c1 = rdtsc();
+    cpu_mhz = (c1 - c0) / 50 / 1000;
 }

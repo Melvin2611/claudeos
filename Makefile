@@ -41,7 +41,7 @@ LIBGUI    := $(BUILD)/user/libgui.a
 BIN_SRC   := $(wildcard user/bin/*.c)
 BINS      := $(BIN_SRC:user/bin/%.c=$(BUILD)/bin/%)
 APP_DIRS  := $(patsubst %/,%,$(sort $(dir $(wildcard user/apps/*/*.c))))
-APPS      := $(APP_DIRS:user/apps/%=$(BUILD)/bin/%)
+APPS      := $(APP_DIRS:user/apps/%=$(BUILD)/apps/%)
 
 ROOTFS_FILES := $(shell find rootfs assets -type f 2>/dev/null)
 INITRD := $(BUILD)/initrd.tar
@@ -93,7 +93,7 @@ $(BUILD)/bin/%: $(BUILD)/user/bin/%.o $(CRT0) $(LIBC) $(LIBGUI) user/user.ld
 	strip -s $@
 
 .SECONDEXPANSION:
-$(BUILD)/bin/%: $$(patsubst user/%.c,$(BUILD)/user/%.o,$$(wildcard user/apps/%/*.c)) $(CRT0) $(LIBC) $(LIBGUI) user/user.ld
+$(BUILD)/apps/%: $$(patsubst user/%.c,$(BUILD)/user/%.o,$$(wildcard user/apps/$$*/*.c)) $(CRT0) $(LIBC) $(LIBGUI) user/user.ld
 	@mkdir -p $(dir $@)
 	$(ULINK) -o $@ $(CRT0) $(filter %.o,$(filter-out $(CRT0),$^)) $(LIBGUI) $(LIBC) $(LIBGCC)
 	strip -s $@

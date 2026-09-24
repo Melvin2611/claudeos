@@ -10,6 +10,8 @@ void cpu_init_features(void);
 bool cpu_has_nx(void);
 void cpu_get_brand(char *out, size_t n);
 extern char cpu_vendor[13];
+extern uint64_t cpu_mhz;
+void cpu_measure_mhz(void);
 
 void pic_init(void);
 void irq_register(int irq, irq_handler_t h, void *ctx);

@@ -5,6 +5,9 @@
 #include <mm.h>
 #include <sched.h>
 #include <fb.h>
+#include <vfs.h>
+#include <proc.h>
+#include <syscall.h>
 #include "drivers.h"
 
 bootinfo_t bootinfo;
@@ -124,35 +127,38 @@ static void heap_selftest(void) {
     klog("[mm] heap self-test passed (heap in use: %lu bytes)\n", (uint64_t)heap_used_bytes());
 }
 
-static volatile int counter_a, counter_b;
-static mutex_t test_mutex;
-static waitq_t test_wq;
-
-static int test_worker(void *arg) {
-    volatile int *c = arg;
-    for (int i = 0; i < 50; i++) {
-        mutex_lock(&test_mutex);
-        (*c)++;
-        mutex_unlock(&test_mutex);
-        if (i % 10 == 0) sleep_ms(2);
+static void load_initrd(void) {
+    for (int i = 0; i < bootinfo.module_count; i++) {
+        boot_module_t *m = &bootinfo.modules[i];
+        if (strcmp(m->name, "initrd") && bootinfo.module_count > 1) continue;
+        initrd_load(P2V(m->start), m->end - m->start, "");
+        /* the archive is no longer needed */
+        for (uint64_t p = PAGE_ALIGN_DOWN(m->start); p < PAGE_ALIGN_UP(m->end); p += PAGE_SIZE) pmm_free(p);
+        return;
     }
-    uint64_t f = irq_save();
-    wq_wake_all(&test_wq);
-    irq_restore(f);
-    return 0;
+    klog("[init] warning: no initrd module found\n");
 }
 
 static int init_thread(void *arg) {
     UNUSED(arg);
-    klog("[init] scheduler running, spawning test threads\n");
-    kthread_create("test-a", test_worker, (void *)&counter_a);
-    kthread_create("test-b", test_worker, (void *)&counter_b);
-    uint64_t f = irq_save();
-    while (counter_a < 50 || counter_b < 50) wq_wait_timeout(&test_wq, 100);
-    irq_restore(f);
-    uint64_t t0 = uptime_ms();
-    sleep_ms(50);
-    klog("[init] threads done (a=%d b=%d), slept %lu ms\n", counter_a, counter_b, uptime_ms() - t0);
+    cpu_measure_mhz();
+    rtc_init();
+    bootcon_status("Mounting file systems...");
+    vfs_init();
+    load_initrd();
+    devfs_init();
+    vfs_mkdir("/tmp");
+    vfs_mkdir("/home");
+    syscall_init();
+
+    if (cmdline_has("usertest")) {
+        char *argv[] = { "hello", 0 };
+        char *envp[] = { "PATH=/bin", "HOME=/home", 0 };
+        int pid = proc_spawn("/bin/hello", argv, envp, 0, "/", current->pid, 0);
+        int status = -1;
+        if (pid > 0) proc_waitpid(pid, &status, 0);
+        klog("[init] usertest pid %d exited with status %d\n", pid, status);
+    }
     bootcon_status("Loading desktop...");
     if (cmdline_has("testpanic")) *(volatile uint64_t *)0xdead0000 = 1;
     klog("[boot] done\n");
