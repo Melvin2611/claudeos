@@ -60,6 +60,8 @@ $(BUILD)/kcommon/%.o: common/src/%.c
 	@mkdir -p $(dir $@)
 	$(CC) $(KCFLAGS) -c $< -o $@
 
+$(BUILD)/kernel/core/assets.asm.o: $(wildcard assets/fonts/*.fnt)
+
 $(KERNEL): $(KOBJ) kernel/linker.ld
 	$(LD) -nostdlib -z max-page-size=0x1000 -T kernel/linker.ld -o $@ $(KOBJ)
 	@objdump -d $@ > $(BUILD)/kernel.dis 2>/dev/null || true

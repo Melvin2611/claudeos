@@ -4,6 +4,7 @@
 #include <cpu.h>
 #include <mm.h>
 #include <sched.h>
+#include <fb.h>
 #include "drivers.h"
 
 bootinfo_t bootinfo;
@@ -152,6 +153,8 @@ static int init_thread(void *arg) {
     uint64_t t0 = uptime_ms();
     sleep_ms(50);
     klog("[init] threads done (a=%d b=%d), slept %lu ms\n", counter_a, counter_b, uptime_ms() - t0);
+    bootcon_status("Loading desktop...");
+    if (cmdline_has("testpanic")) *(volatile uint64_t *)0xdead0000 = 1;
     klog("[boot] done\n");
     return 0;
 }
@@ -169,6 +172,9 @@ void kmain(uint32_t magic, uint64_t mbi_phys) {
     pmm_init();
     vmm_init();
     heap_selftest();
+    kfonts_init();
+    fb_init();
+    bootcon_init();
 
     sched_init();
     pic_init();
