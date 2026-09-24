@@ -15,7 +15,7 @@
 #define USER_STACK_MAX  (8ULL << 20)
 #define USER_LOAD_MIN   0x0000000000400000ULL
 
-#define PAGE_SIZE 4096ULL
+#define PAGE_SIZE 4096UL
 #define PAGE_ALIGN_UP(x)   (((uint64_t)(x) + PAGE_SIZE - 1) & ~(PAGE_SIZE - 1))
 #define PAGE_ALIGN_DOWN(x) ((uint64_t)(x) & ~(PAGE_SIZE - 1))
 
