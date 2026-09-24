@@ -1,0 +1,11 @@
+-std=gnu11
+-ffreestanding
+--target=x86_64-elf
+-nostdinc
+-isystem
+/usr/lib/gcc/x86_64-pc-linux-gnu/16/include
+-I/home/melvin/Projects/claudeos/user/libc/include
+-I/home/melvin/Projects/claudeos/user/libgui/include
+-I/home/melvin/Projects/claudeos/common/include
+-DFMT_FLOAT
+-DUSERLAND

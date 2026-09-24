@@ -1,0 +1,7 @@
+-std=gnu11
+-ffreestanding
+--target=x86_64-elf
+-DKERNEL
+-I/home/melvin/Projects/claudeos/kernel/include
+-I/home/melvin/Projects/claudeos/common/include
+-Wall
