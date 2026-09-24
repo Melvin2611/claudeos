@@ -620,6 +620,44 @@ def g_sleep(d):
     d.ellipse([88, 16, 252, 180], fill=(0, 0, 0, 0))
 
 
+def g_clock(d):
+    d.ellipse([24, 24, 232, 232], outline=W, width=LW)
+    d.line([(128, 128), (128, 64)], fill=W, width=LW - 2)
+    d.line([(128, 128), (176, 156)], fill=W, width=LW - 2)
+
+
+def g_keyboard(d):
+    d.rounded_rectangle([16, 60, 240, 196], 20, outline=W, width=LW - 4)
+    for y in (92, 124):
+        for x in range(48, 216, 32):
+            d.rectangle([x - 8, y - 8, x + 8, y + 8], fill=W)
+    d.rectangle([80, 152, 176, 168], fill=W)
+
+
+def g_mouse(d):
+    d.rounded_rectangle([64, 20, 192, 236], 60, outline=W, width=LW - 4)
+    d.line([(128, 24), (128, 100)], fill=W, width=LW - 6)
+    d.line([(68, 100), (188, 100)], fill=W, width=LW - 6)
+
+
+def g_info(d):
+    d.ellipse([20, 20, 236, 236], outline=W, width=LW - 2)
+    d.ellipse([114, 58, 142, 86], fill=W)
+    d.rounded_rectangle([114, 106, 142, 196], 8, fill=W)
+
+
+def g_taskbar(d):
+    d.rounded_rectangle([16, 36, 240, 220], 16, outline=W, width=LW - 4)
+    d.rectangle([16, 178, 240, 220], fill=W)
+
+
+def g_palette(d):
+    d.ellipse([20, 28, 236, 228], outline=W, width=LW - 4)
+    for x, y in ((80, 88), (128, 64), (176, 88), (184, 140)):
+        d.ellipse([x - 16, y - 16, x + 16, y + 16], fill=W)
+    d.ellipse([88, 150, 132, 194], fill=W)
+
+
 GLYPHS = {
     "power": g_power, "restart": g_restart, "search": g_search, "volume": g_volume,
     "volume-low": lambda d: g_volume(d, 1), "volume-mute": g_volume_mute, "wifi": g_network,
@@ -634,6 +672,8 @@ GLYPHS = {
     "fill": g_fill, "picker": g_picker, "text": g_text, "zoom-in": g_zoom_in, "zoom-out": g_zoom_out,
     "flag": g_flag, "grid": g_grid, "list": g_list, "computer": g_computer, "image": g_image,
     "music": g_music, "gear": g_gear, "user": g_user, "lock": g_lock, "sleep": g_sleep,
+    "clock": g_clock, "keyboard": g_keyboard, "mouse": g_mouse, "info": g_info, "taskbar": g_taskbar,
+    "palette": g_palette,
 }
 
 # ----------------------------------------------------------------------------- cursors (32x32)

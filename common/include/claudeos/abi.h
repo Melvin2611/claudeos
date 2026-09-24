@@ -194,6 +194,17 @@ typedef struct { int32_t fd; int16_t events, revents; } kpollfd_t;
 #define POWER_REBOOT 1
 
 typedef struct {
+    uint8_t mac[6];
+    uint8_t present;        /* network adapter found */
+    uint8_t up;             /* link up + configured */
+    uint32_t ip, netmask, gateway, dns;   /* network byte order */
+    uint64_t rx_packets, tx_packets, rx_bytes, tx_bytes;
+    char driver[24];
+    uint32_t lease_seconds;
+    uint32_t reserved;
+} knetinfo_t;
+
+typedef struct {
     uint8_t bus, dev, func, class_code, subclass, prog_if, irq, reserved;
     uint16_t vendor, device;
     char description[48];

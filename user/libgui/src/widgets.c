@@ -487,7 +487,12 @@ static void draw_list(ui_widget_t *w, surface_t *s) {
         int x = r.x + 8;
         if (it->icon[0]) {
             int isz = l->row_h >= 30 ? 24 : 16;
-            ui_draw_icon(&sub, it->icon, isz, x, r.y + (r.h - isz) / 2);
+            if (!strncmp(it->icon, "g:", 2)) {
+                isz = l->row_h >= 30 ? 20 : 16;
+                ui_draw_glyph(&sub, it->icon + 2, isz, x + 2, r.y + (r.h - isz) / 2, tc);
+            } else {
+                ui_draw_icon(&sub, it->icon, isz, x, r.y + (r.h - isz) / 2);
+            }
             x += isz + 8;
         }
         int ty = r.y + (r.h - w->font->height) / 2;
