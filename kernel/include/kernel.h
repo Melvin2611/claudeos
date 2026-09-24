@@ -4,6 +4,7 @@
 #include <stdbool.h>
 #include <stdarg.h>
 #include "arch.h"
+#include <claudeos/abi.h>
 
 #define KERNEL_VMA   0xFFFFFFFF80000000ULL
 #define PHYSMAP_BASE 0xFFFF800000000000ULL

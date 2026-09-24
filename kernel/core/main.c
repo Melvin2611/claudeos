@@ -9,6 +9,10 @@
 #include <proc.h>
 #include <syscall.h>
 #include <input.h>
+#include <pci.h>
+#include <blk.h>
+
+void pci_register_syscalls(void);
 #include "drivers.h"
 
 bootinfo_t bootinfo;
@@ -153,6 +157,12 @@ static int init_thread(void *arg) {
     vfs_mkdir("/tmp");
     vfs_mkdir("/home");
     syscall_init();
+    bootcon_status("Detecting hardware...");
+    pci_init();
+    pci_register_syscalls();
+    ata_init();
+    storage_init();
+    storage_register_syscalls();
 
     if (cmdline_has("usertest")) {
         char *argv[] = { "hello", 0 };

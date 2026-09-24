@@ -18,7 +18,7 @@ BASE_CFLAGS := -std=gnu11 -O2 -g -ffreestanding -fno-stack-protector -fno-pic -f
 	-fno-asynchronous-unwind-tables -Wall -Wextra -Wno-unused-parameter -Wno-sign-compare \
 	-nostdinc -isystem $(GCCINC) -Icommon/include -MMD -MP
 
-KCFLAGS := $(BASE_CFLAGS) -mno-red-zone -mcmodel=kernel -mgeneral-regs-only -Ikernel/include -DKERNEL
+KCFLAGS := $(BASE_CFLAGS) -Wno-address-of-packed-member -mno-red-zone -mcmodel=kernel -mgeneral-regs-only -Ikernel/include -DKERNEL
 UCFLAGS := $(BASE_CFLAGS) -Iuser/libc/include -Iuser/libgui/include -DFMT_FLOAT -DUSERLAND
 
 # ---------------------------------------------------------------- kernel
@@ -126,8 +126,8 @@ DISK := $(BUILD)/disk.img
 disk: $(DISK)
 $(DISK):
 	@mkdir -p $(BUILD)
-	truncate -s 256M $@
-	mkfs.fat -F 32 -n CLAUDEOS $@ > /dev/null
+	truncate -s 512M $@
+	mkfs.fat -F 32 -s 8 -n CLAUDEOS $@ > /dev/null
 
 KVM := $(shell test -w /dev/kvm && echo "-enable-kvm -cpu host")
 AUDIO ?= pipewire
