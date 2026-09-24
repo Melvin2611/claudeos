@@ -1,6 +1,7 @@
 #pragma once
 #include <stddef.h>
 #include <stdarg.h>
+#include <stdbool.h>
 
 #define EOF (-1)
 #define BUFSIZ 4096

@@ -132,6 +132,13 @@ void cpu_get_brand(char *out, size_t n) {
     char *s = brand;
     while (*s == ' ') s++;
     strlcpy(out, s, n);
+    size_t l = strlen(out);
+    while (l && out[l - 1] == ' ') out[--l] = 0;
+    /* collapse runs of spaces */
+    char *w = out;
+    for (char *r = out; *r; r++)
+        if (!(r[0] == ' ' && r[1] == ' ')) *w++ = *r;
+    *w = 0;
 }
 
 /* estimate the TSC frequency using the PIT tick counter (call with interrupts enabled) */

@@ -2,7 +2,13 @@
 /* ClaudeOS specific system interfaces */
 #include <stdint.h>
 #include <stddef.h>
+#include <stdbool.h>
 #include <claudeos/abi.h>
+
+#ifndef MIN
+#define MIN(a, b) ((a) < (b) ? (a) : (b))
+#define MAX(a, b) ((a) > (b) ? (a) : (b))
+#endif
 
 /* process control */
 int spawn(const char *path, char *const argv[], char *const envp[], const int fdmap[3], int flags);

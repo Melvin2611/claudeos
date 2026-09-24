@@ -148,6 +148,8 @@ static int init_thread(void *arg) {
     vfs_init();
     load_initrd();
     devfs_init();
+    extern void pty_init(void);
+    pty_init();
     vfs_mkdir("/tmp");
     vfs_mkdir("/home");
     syscall_init();

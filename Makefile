@@ -92,11 +92,13 @@ $(BUILD)/bin/%: $(BUILD)/user/bin/%.o $(CRT0) $(LIBC) $(LIBGUI) user/user.ld
 	$(ULINK) -o $@ $(CRT0) $< $(LIBGUI) $(LIBC) $(LIBGCC)
 	strip -s $@
 
-.SECONDEXPANSION:
-$(BUILD)/apps/%: $$(patsubst user/%.c,$(BUILD)/user/%.o,$$(wildcard user/apps/$$*/*.c)) $(CRT0) $(LIBC) $(LIBGUI) user/user.ld
-	@mkdir -p $(dir $@)
-	$(ULINK) -o $@ $(CRT0) $(filter %.o,$(filter-out $(CRT0),$^)) $(LIBGUI) $(LIBC) $(LIBGCC)
-	strip -s $@
+define APP_RULE
+$(BUILD)/apps/$(1): $(patsubst user/%.c,$(BUILD)/user/%.o,$(wildcard user/apps/$(1)/*.c)) $(CRT0) $(LIBC) $(LIBGUI) user/user.ld
+	@mkdir -p $$(dir $$@)
+	$$(ULINK) -o $$@ $$(CRT0) $(patsubst user/%.c,$(BUILD)/user/%.o,$(wildcard user/apps/$(1)/*.c)) $$(LIBGUI) $$(LIBC) $$(LIBGCC)
+	strip -s $$@
+endef
+$(foreach a,$(APP_DIRS:user/apps/%=%),$(eval $(call APP_RULE,$(a))))
 
 # initrd: rootfs/ + generated assets + binaries
 $(INITRD): $(BINS) $(APPS) $(ROOTFS_FILES)
