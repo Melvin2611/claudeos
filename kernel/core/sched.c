@@ -323,7 +323,7 @@ void sched_init(void) {
     /* the boot context becomes the idle task */
     idle_task = task_alloc("idle");
     vfree(idle_task->kstack);            /* idle runs on the boot stack */
-    extern char kernel_boot_stack[], kernel_boot_stack_top[];
+    extern char kernel_boot_stack_top[];
     idle_task->kstack = 0;
     idle_task->kstack_top = (uint64_t)kernel_boot_stack_top;
     idle_task->state = T_RUNNING;
