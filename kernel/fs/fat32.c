@@ -844,6 +844,7 @@ int fat_mount(blkdev_t *dev, const char *path) {
     int r = vfs_mount(path, root->vn, "fat32", devname, &fat_fs_ops, fs);
     if (r < 0) { kfree(root); kfree(fs); return r; }
     if (nfat_mounts < 8) fat_mounts[nfat_mounts++] = root->vn->mnt;
+    dev->mounted = true;
     klog("[fat] %s mounted on %s: %u clusters of %u bytes, label '%s'\n", dev->name, path, fs->nclusters, fs->cbytes,
          fs->label);
     return 0;

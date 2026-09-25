@@ -21,7 +21,8 @@ Commands:
   expect:<regex>           fail unless the serial log matches (no waiting)
   quit                     power off (hard)
 """
-import argparse, json, os, re, shutil, socket, subprocess, sys, tempfile, time
+import argparse
+import shlex, json, os, re, shutil, socket, subprocess, sys, tempfile, time
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 BUILD = os.path.join(ROOT, "build")
@@ -264,10 +265,11 @@ def main():
     ap.add_argument("--log", default=os.path.join(BUILD, "qtest-serial.log"))
     ap.add_argument("--iso")
     ap.add_argument("--smp", type=int, default=4)
+    ap.add_argument("--qemu", default="", help="extra QEMU arguments")
     ap.add_argument("cmds", nargs="*")
     a = ap.parse_args()
     m = Machine(args=a.args, mem=a.mem, uefi=a.uefi, kvm=not a.tcg, disk=a.disk, res=a.res,
-                audio_wav=a.wav, net=not a.nonet, iso=a.iso, smp=a.smp)
+                audio_wav=a.wav, net=not a.nonet, iso=a.iso, smp=a.smp, extra=shlex.split(a.qemu))
     rc = 0
     try:
         m.run_script(a.cmds)

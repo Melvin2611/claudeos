@@ -166,6 +166,10 @@ static int init_thread(void *arg) {
     pci_init();
     pci_register_syscalls();
     ata_init();
+    extern void ahci_init(void);
+    extern void nvme_init(void);
+    ahci_init();
+    nvme_init();
     storage_init();
     storage_register_syscalls();
     extern void audio_init(void);

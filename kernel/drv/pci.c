@@ -3,8 +3,9 @@
 #include <pci.h>
 #include <syscall.h>
 #include <mm.h>
+#include <smp.h>
 
-#define MAX_PCI 64
+#define MAX_PCI 256
 static pci_dev_t devs[MAX_PCI];
 static int ndevs;
 
@@ -127,6 +128,144 @@ SYSCALL_DEF(sys_pci_info) {
     strlcpy(info.description, pci_class_name(d->class_code, d->subclass), sizeof(info.description));
     if (copy_to_user((void *)a2, &info, sizeof(info)) < 0) return -EFAULT;
     return 1;
+}
+
+/* ------------------------------------------------------------------ BARs, capabilities, MSI */
+
+uint64_t pci_bar_phys(pci_dev_t *d, int i) {
+    uint32_t b = d->bar[i];
+    if (b & 1) return b & ~3u;
+    uint64_t a = b & ~0xFULL;
+    if (((b >> 1) & 3) == 2 && i < 5) a |= (uint64_t)d->bar[i + 1] << 32;
+    return a;
+}
+
+uint64_t pci_bar_size(pci_dev_t *d, int i) {
+    uint8_t off = 0x10 + i * 4;
+    uint16_t cmd = pci_read16(d, 0x04);
+    pci_write16(d, 0x04, cmd & ~3);                   /* no decoding while probing */
+    uint32_t orig = pci_read32(d, off);
+    pci_write32(d, off, 0xFFFFFFFF);
+    uint32_t v = pci_read32(d, off);
+    pci_write32(d, off, orig);
+    uint64_t size;
+    if (orig & 1) {
+        size = (uint16_t)(~(v & ~3u) + 1);
+    } else if (((orig >> 1) & 3) == 2 && i < 5) {
+        uint32_t orig_hi = pci_read32(d, off + 4);
+        pci_write32(d, off + 4, 0xFFFFFFFF);
+        uint32_t vh = pci_read32(d, off + 4);
+        pci_write32(d, off + 4, orig_hi);
+        uint64_t mask = ((uint64_t)vh << 32) | (v & ~0xFu);
+        size = ~mask + 1;
+    } else {
+        size = (uint32_t)(~(v & ~0xFu) + 1);
+    }
+    pci_write16(d, 0x04, cmd);
+    return size;
+}
+
+void *pci_map_bar(pci_dev_t *d, int i, uint64_t *size_out) {
+    uint64_t phys = pci_bar_phys(d, i), size = pci_bar_size(d, i);
+    if (!phys || !size || (d->bar[i] & 1)) return 0;
+    if (size > (64ULL << 20)) size = 64ULL << 20;
+    if (size_out) *size_out = size;
+    return ioremap(phys, size, CACHE_UC);
+}
+
+uint8_t pci_find_cap(pci_dev_t *d, uint8_t id) {
+    if (!(pci_read16(d, 0x06) & 0x10)) return 0;
+    uint8_t p = pci_read32(d, 0x34) & 0xFC;
+    for (int n = 0; p && n < 48; n++) {
+        uint32_t v = pci_read32(d, p);
+        if ((v & 0xFF) == id) return p;
+        p = (v >> 8) & 0xFC;
+    }
+    return 0;
+}
+
+/* route the device's interrupt to a local APIC vector: MSI if available, else MSI-X entry 0 */
+bool pci_enable_msi(pci_dev_t *d, void (*fn)(void *), void *ctx) {
+    uint8_t vec;
+    uint8_t cap = pci_find_cap(d, 0x05);
+    uint8_t capx = pci_find_cap(d, 0x11);
+    if ((!cap && !capx) || !msi_alloc_vector(fn, ctx, &vec)) return false;
+    uint32_t addr = 0xFEE00000u | (lapic_bsp_id << 12);
+    if (cap) {
+        uint16_t ctrl = pci_read16(d, cap + 2);
+        bool is64 = ctrl & (1 << 7);
+        pci_write32(d, cap + 4, addr);
+        if (is64) {
+            pci_write32(d, cap + 8, 0);
+            pci_write16(d, cap + 12, vec);
+        } else {
+            pci_write16(d, cap + 8, vec);
+        }
+        ctrl &= ~(7 << 4);                            /* one message */
+        pci_write16(d, cap + 2, ctrl | 1);
+    } else {
+        uint16_t ctrl = pci_read16(d, capx + 2);
+        uint32_t tbl = pci_read32(d, capx + 4);
+        int bir = tbl & 7;
+        uint64_t phys = pci_bar_phys(d, bir) + (tbl & ~7u);
+        volatile uint32_t *entry = ioremap(phys, 16, CACHE_UC);
+        if (!entry) return false;
+        pci_write16(d, capx + 2, ctrl | (1 << 15) | (1 << 14));   /* enable, masked while programming */
+        entry[0] = addr;
+        entry[1] = 0;
+        entry[2] = vec;
+        entry[3] = 0;                                 /* unmask entry 0 */
+        pci_write16(d, capx + 2, (ctrl | (1 << 15)) & ~(1 << 14));
+    }
+    pci_write16(d, 0x04, pci_read16(d, 0x04) | 0x400);   /* disable legacy INTx */
+    return true;
+}
+
+/* ------------------------------------------------------------------ graphics adapter names */
+
+static const struct { uint16_t dev; const char *name; } amd_gpus[] = {
+    { 0x744C, "Radeon RX 7900 XT/XTX" }, { 0x7448, "Radeon PRO W7900" }, { 0x747E, "Radeon RX 7800 XT / 7700 XT" },
+    { 0x7480, "Radeon RX 7600 / 7600 XT" }, { 0x7550, "Radeon RX 9070 / 9070 XT" }, { 0x7590, "Radeon RX 9060 XT" },
+    { 0x73BF, "Radeon RX 6800/6900 XT" }, { 0x73AF, "Radeon RX 6900 XT" }, { 0x73A5, "Radeon RX 6950 XT" },
+    { 0x73DF, "Radeon RX 6700/6750 XT" }, { 0x73FF, "Radeon RX 6600/6650 XT" }, { 0x743F, "Radeon RX 6400/6500 XT" },
+    { 0x731F, "Radeon RX 5600/5700 XT" }, { 0x7340, "Radeon RX 5500 XT" }, { 0x66AF, "Radeon VII" },
+    { 0x687F, "Radeon RX Vega 56/64" }, { 0x67DF, "Radeon RX 470/480/570/580" }, { 0x67FF, "Radeon RX 550/560" },
+    { 0x699F, "Radeon RX 550 / 540" }, { 0x6FDF, "Radeon RX 580 2048SP" },
+    { 0x164E, "Radeon Graphics (Raphael, Ryzen 7000)" }, { 0x13C0, "Radeon Graphics (Granite Ridge, Ryzen 9000)" },
+    { 0x15BF, "Radeon 780M (Phoenix)" }, { 0x15C8, "Radeon 740M (Phoenix)" }, { 0x1900, "Radeon 780M (Hawk Point)" },
+    { 0x150E, "Radeon 890M (Strix Point)" }, { 0x1586, "Radeon 8060S (Strix Halo)" },
+    { 0x1681, "Radeon 680M (Rembrandt)" }, { 0x1638, "Radeon Vega (Cezanne)" }, { 0x1636, "Radeon Vega (Renoir)" },
+    { 0x15D8, "Radeon Vega (Picasso)" }, { 0x15DD, "Radeon Vega (Raven Ridge)" }, { 0x163F, "Radeon (Van Gogh, Steam Deck)" },
+    { 0x1435, "Radeon (Aerith, Steam Deck)" },
+};
+
+/* describe the display adapter (the desktop uses the firmware framebuffer on every GPU) */
+void pci_gpu_name(char *out, size_t n) {
+    pci_dev_t *g = 0;
+    for (int i = 0; i < ndevs; i++) {
+        if (devs[i].class_code != 0x03) continue;
+        if (!g || devs[i].vendor == 0x1002) g = &devs[i];   /* prefer the AMD card */
+    }
+    if (!g) { strlcpy(out, "Framebuffer", n); return; }
+    if (g->vendor == 0x1002) {
+        for (size_t i = 0; i < ARRAY_SIZE(amd_gpus); i++)
+            if (amd_gpus[i].dev == g->device) { snprintf(out, n, "AMD %s", amd_gpus[i].name); return; }
+        snprintf(out, n, "AMD Radeon (device %04x)", g->device);
+    } else if (g->vendor == 0x1234 && g->device == 0x1111) {
+        strlcpy(out, "Bochs/QEMU standard VGA", n);
+    } else if (g->vendor == 0x1AF4) {
+        strlcpy(out, "Virtio GPU", n);
+    } else if (g->vendor == 0x15AD) {
+        strlcpy(out, "VMware SVGA II", n);
+    } else if (g->vendor == 0x80EE) {
+        strlcpy(out, "VirtualBox Graphics Adapter", n);
+    } else if (g->vendor == 0x10DE) {
+        snprintf(out, n, "NVIDIA GPU (device %04x)", g->device);
+    } else if (g->vendor == 0x8086) {
+        snprintf(out, n, "Intel Graphics (device %04x)", g->device);
+    } else {
+        snprintf(out, n, "Display adapter %04x:%04x", g->vendor, g->device);
+    }
 }
 
 void pci_register_syscalls(void) { syscall_register(SYS_PCI_INFO, sys_pci_info); }

@@ -197,6 +197,50 @@ int blk_flush(blkdev_t *d) {
 static int part_read(blkdev_t *d, uint64_t lba, uint32_t n, void *buf) { return d->parent->read(d->parent, lba + d->offset, n, buf); }
 static int part_write(blkdev_t *d, uint64_t lba, uint32_t n, const void *buf) { return d->parent->write(d->parent, lba + d->offset, n, buf); }
 
+static void add_partition(blkdev_t *disk, int num, uint64_t start, uint64_t size, const char *type) {
+    if (!size || start + size > disk->nsectors) return;
+    blkdev_t *p = kzalloc(sizeof(blkdev_t));
+    size_t l = strlen(disk->name);
+    bool digit = l && disk->name[l - 1] >= '0' && disk->name[l - 1] <= '9';
+    snprintf(p->name, sizeof(p->name), "%s%s%d", disk->name, digit ? "p" : "", num);
+    strlcpy(p->model, disk->model, sizeof(p->model));
+    p->parent = disk;
+    p->offset = start;
+    p->nsectors = size;
+    p->read = part_read;
+    p->write = part_write;
+    p->flush = 0;
+    klog("[blk] %s: %s partition, %lu MiB\n", p->name, type, size / 2048);
+    blk_register(p);
+}
+
+/* GUID partition table (behind a protective MBR) */
+static bool scan_gpt(blkdev_t *disk) {
+    uint8_t *hdr = kmalloc(512);
+    if (blk_read(disk, 1, 1, hdr) < 0 || memcmp(hdr, "EFI PART", 8)) { kfree(hdr); return false; }
+    uint64_t entries_lba = *(uint64_t *)(hdr + 72);
+    uint32_t count = *(uint32_t *)(hdr + 80), esize = *(uint32_t *)(hdr + 84);
+    kfree(hdr);
+    if (esize < 128 || esize > 512 || count > 256) return false;
+    uint32_t bytes = count * esize;
+    uint32_t secs = (bytes + 511) / 512;
+    uint8_t *tab = kmalloc(secs * 512);
+    if (blk_read(disk, entries_lba, secs, tab) < 0) { kfree(tab); return false; }
+    static const uint8_t zero[16];
+    for (uint32_t i = 0; i < count; i++) {
+        uint8_t *e = tab + i * esize;
+        if (!memcmp(e, zero, 16)) continue;
+        uint64_t first = *(uint64_t *)(e + 32), last = *(uint64_t *)(e + 40);
+        /* a few well-known type GUIDs (first 4 bytes, little endian) */
+        uint32_t g = *(uint32_t *)e;
+        const char *type = g == 0xEBD0A0A2 ? "Basic data" : g == 0x0FC63DAF ? "Linux" : g == 0xC12A7328 ? "EFI system" :
+                           g == 0x0657FD6D ? "Linux swap" : g == 0xE3C9E316 ? "MS reserved" : "GPT";
+        add_partition(disk, (int)i + 1, first, last - first + 1, type);
+    }
+    kfree(tab);
+    return true;
+}
+
 void blk_scan_partitions(blkdev_t *disk) {
     uint8_t *mbr = kmalloc(512);
     if (blk_read(disk, 0, 1, mbr) < 0 || mbr[510] != 0x55 || mbr[511] != 0xAA) { kfree(mbr); return; }
@@ -205,23 +249,16 @@ void blk_scan_partitions(blkdev_t *disk) {
         kfree(mbr);
         return;
     }
+    if (mbr[446 + 4] == 0xEE && scan_gpt(disk)) { kfree(mbr); return; }
     for (int i = 0; i < 4; i++) {
         uint8_t *e = mbr + 446 + i * 16;
         uint8_t type = e[4];
         uint32_t start = e[8] | (e[9] << 8) | (e[10] << 16) | ((uint32_t)e[11] << 24);
         uint32_t size = e[12] | (e[13] << 8) | (e[14] << 16) | ((uint32_t)e[15] << 24);
-        if (!type || !size || start + (uint64_t)size > disk->nsectors) continue;
-        blkdev_t *p = kzalloc(sizeof(blkdev_t));
-        snprintf(p->name, sizeof(p->name), "%s%d", disk->name, i + 1);
-        strlcpy(p->model, disk->model, sizeof(p->model));
-        p->parent = disk;
-        p->offset = start;
-        p->nsectors = size;
-        p->read = part_read;
-        p->write = part_write;
-        p->flush = 0;
-        klog("[blk] %s: partition type %02x, %u MiB\n", p->name, type, size / 2048);
-        blk_register(p);
+        if (!type) continue;
+        char tname[16];
+        snprintf(tname, sizeof(tname), "type %02x", type);
+        add_partition(disk, i + 1, start, size, tname);
     }
     kfree(mbr);
 }

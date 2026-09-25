@@ -11,6 +11,7 @@ typedef struct blkdev {
     int (*write)(struct blkdev *d, uint64_t lba, uint32_t count, const void *buf);
     int (*flush)(struct blkdev *d);
     void *priv;
+    bool mounted;
     struct blkdev *next;
 } blkdev_t;
 
@@ -29,5 +30,6 @@ int fat_mount(blkdev_t *d, const char *path);
 int fat_mkfs(blkdev_t *d, const char *label);
 void fs_sync_all(void);
 void storage_init(void);
+int fs_mount_any(blkdev_t *d, const char *path, const char **fstype);
 void storage_register_syscalls(void);
 bool storage_home_persistent(void);

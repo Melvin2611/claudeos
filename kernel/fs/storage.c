@@ -58,6 +58,35 @@ static bool try_mount_home(void) {
     return false;
 }
 
+__attribute__((weak)) int btrfs_mount(blkdev_t *d, const char *path) { UNUSED(d); UNUSED(path); return -EINVAL; }
+
+/* mount whatever file system is on the device */
+int fs_mount_any(blkdev_t *d, const char *path, const char **fstype) {
+    if (fat_mount(d, path) == 0) { if (fstype) *fstype = "fat32"; return 0; }
+    if (btrfs_mount(d, path) == 0) { if (fstype) *fstype = "btrfs"; return 0; }
+    return -EINVAL;
+}
+
+static bool has_partitions(blkdev_t *d) {
+    for (blkdev_t *p = blk_list(); p; p = p->next)
+        if (p->parent == d) return true;
+    return false;
+}
+
+/* every other recognised file system appears under /mnt/<device> */
+static void automount(void) {
+    vfs_mkdir("/mnt");
+    for (blkdev_t *d = blk_list(); d; d = d->next) {
+        if (d->mounted || has_partitions(d)) continue;
+        char path[48];
+        snprintf(path, sizeof(path), "/mnt/%s", d->name);
+        vfs_mkdir(path);
+        const char *type;
+        if (fs_mount_any(d, path, &type) == 0) klog("[storage] %s (%s) mounted on %s\n", d->name, type, path);
+        else vfs_rmdir(path);
+    }
+}
+
 /* background writer: flushes cached metadata every two seconds */
 static int syncd(void *arg) {
     UNUSED(arg);
@@ -76,12 +105,14 @@ void storage_init(void) {
     if (try_mount_home()) {
         home_on_disk = true;
         populate_home();
+        automount();
         return;
     }
     /* no usable disk: keep /home in RAM */
     vfs_rmdir("/home");
     vfs_rename("/etc/skel", "/home");
     klog("[storage] no FAT32 disk found - /home is kept in memory (changes are lost at shutdown)\n");
+    automount();
 }
 
 bool storage_home_persistent(void) { return home_on_disk; }
