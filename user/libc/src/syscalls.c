@@ -13,7 +13,6 @@
 #include <stdlib.h>
 #include <claudeos.h>
 
-int errno;
 
 static long ret(long r) {
     if (r < 0) { errno = (int)-r; return -1; }
@@ -112,6 +111,7 @@ int spawn(const char *path, char *const argv[], char *const envp[], const int fd
 int spawnv(const char *path, char *const argv[]) { return spawn(path, argv, environ, 0, 0); }
 int proc_info(int index, kprocinfo_t *out) { return (int)ret(syscall2(SYS_PROCINFO, index, out)); }
 int sys_info(ksysinfo_t *out) { return (int)ret(syscall1(SYS_SYSINFO, out)); }
+int cpu_info(kcpuinfo_t *out, int max) { return (int)ret(syscall2(SYS_CPUINFO, out, max)); }
 uint64_t uptime_ms(void) { return (uint64_t)syscall0(SYS_UPTIME); }
 int power(int what) { return (int)ret(syscall1(SYS_POWER, what)); }
 long dmesg(char *buf, size_t len, size_t off) { return ret(syscall3(SYS_DMESG, buf, len, off)); }

@@ -301,7 +301,7 @@ SYSCALL_DEF(sys_sound_play) {
     char path[PATH_MAX_LEN];
     if (strncpy_from_user(path, (const char *)a1, sizeof(path)) < 0) return -EFAULT;
     char abs[PATH_MAX_LEN];
-    if (vfs_normalize(current->cwd, path, abs) < 0) return -EINVAL;
+    if (vfs_normalize(PROC(current)->cwd, path, abs) < 0) return -EINVAL;
     return snd_play_file_ret(abs);
 }
 

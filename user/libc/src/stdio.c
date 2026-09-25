@@ -76,7 +76,8 @@ FILE *fdopen(int fd, const char *mode) {
     return mkfile(fd, acc);
 }
 
-int fflush(FILE *f) {
+int fflush(FILE *f);
+static int fflush_unlocked(FILE *f) {
     if (!f) { __stdio_flush_all(); return 0; }
     if (f->last_write && f->len) {
         size_t off = 0;
@@ -187,7 +188,7 @@ static int flush_if_needed(FILE *f) {
     return 0;
 }
 
-size_t fwrite(const void *buf, size_t size, size_t n, FILE *f) {
+static size_t fwrite_unlocked(const void *buf, size_t size, size_t n, FILE *f) {
     size_t total = size * n;
     const char *b = buf;
     flush_if_needed(f);
@@ -249,7 +250,35 @@ int setvbuf(FILE *f, char *buf, int mode, size_t size) {
 /* ---- printf family ---- */
 static void out_file(char c, void *ctx) { fputc(c, (FILE *)ctx); }
 
-int vfprintf(FILE *f, const char *fmt, va_list ap) { return fmt_format(out_file, f, fmt, ap); }
+/* one recursive lock serialises all stdio output between threads */
+#include <pthread.h>
+static volatile int stdio_lock;
+static void *volatile stdio_owner;
+static int stdio_depth;
+
+static void slock(void) {
+    void *me = pthread_self();
+    if (stdio_owner == me) { stdio_depth++; return; }
+    __lock(&stdio_lock);
+    stdio_owner = me;
+    stdio_depth = 1;
+}
+
+static void sunlock(void) {
+    if (--stdio_depth == 0) {
+        stdio_owner = 0;
+        __unlock(&stdio_lock);
+    }
+}
+
+int fflush(FILE *f) { slock(); int r = fflush_unlocked(f); sunlock(); return r; }
+size_t fwrite(const void *buf, size_t size, size_t n, FILE *f) {
+    slock();
+    size_t r = fwrite_unlocked(buf, size, n, f);
+    sunlock();
+    return r;
+}
+int vfprintf(FILE *f, const char *fmt, va_list ap) { slock(); int r = fmt_format(out_file, f, fmt, ap); sunlock(); return r; }
 int vprintf(const char *fmt, va_list ap) { return vfprintf(stdout, fmt, ap); }
 int fprintf(FILE *f, const char *fmt, ...) { va_list ap; va_start(ap, fmt); int r = vfprintf(f, fmt, ap); va_end(ap); return r; }
 int printf(const char *fmt, ...) { va_list ap; va_start(ap, fmt); int r = vfprintf(stdout, fmt, ap); va_end(ap); return r; }

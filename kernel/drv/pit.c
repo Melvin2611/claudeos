@@ -6,11 +6,30 @@
 volatile uint64_t ticks;   /* ms since boot */
 static uint32_t pit_hz = 1000;
 
-void sched_tick(void);
+void sched_tick_local(void);
+void sched_tick_global(void);
+bool lapic_timer_on_bsp;
+static uint64_t tsc_base, tsc_per_ms;
+
+/* called on every PIT interrupt before the big kernel lock is taken. Once the TSC
+ * rate is known the time is derived from it, so delayed interrupts lose no time. */
+void pit_tick_update(void) {
+    extern uint64_t cpu_mhz;
+    if (!tsc_per_ms && cpu_mhz) {
+        tsc_per_ms = cpu_mhz * 1000;
+        tsc_base = rdtsc() - ticks * tsc_per_ms;
+    }
+    if (tsc_per_ms) {
+        uint64_t t = (rdtsc() - tsc_base) / tsc_per_ms;
+        if (t > ticks) ticks = t;
+    } else {
+        ticks += 1000 / pit_hz;
+    }
+}
 
 static void pit_irq(regs_t *r, void *ctx) {
-    ticks += 1000 / pit_hz;
-    sched_tick();
+    if (!lapic_timer_on_bsp) sched_tick_local();
+    sched_tick_global();
 }
 
 void pit_init(uint32_t hz) {

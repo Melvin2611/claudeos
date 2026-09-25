@@ -131,7 +131,7 @@ $(DISK):
 
 KVM := $(shell test -w /dev/kvm && echo "-enable-kvm -cpu host")
 AUDIO ?= pipewire
-QEMU_FLAGS := -machine pc -m 1G -vga std -rtc base=localtime \
+QEMU_FLAGS := -machine pc -m 1G -smp 4 -vga std -rtc base=localtime \
 	-drive file=$(DISK),format=raw,if=ide,index=0 -cdrom $(ISO) -boot d \
 	-nic user,model=e1000 -audiodev $(AUDIO),id=snd0 -device AC97,audiodev=snd0 \
 	-serial stdio

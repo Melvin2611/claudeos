@@ -7,6 +7,7 @@
 enum {
     SYS_EXIT = 0, SYS_SPAWN, SYS_WAITPID, SYS_GETPID, SYS_GETPPID, SYS_KILL, SYS_SLEEP, SYS_YIELD,
     SYS_SBRK, SYS_UPTIME, SYS_TIME, SYS_PROCINFO, SYS_SYSINFO, SYS_POWER,
+    SYS_THREAD_CREATE, SYS_THREAD_EXIT, SYS_FUTEX, SYS_GETTID, SYS_CPUINFO, SYS_SET_FS,
     SYS_OPEN = 20, SYS_CLOSE, SYS_READ, SYS_WRITE, SYS_LSEEK, SYS_STAT, SYS_FSTAT, SYS_READDIR,
     SYS_MKDIR, SYS_UNLINK, SYS_RMDIR, SYS_RENAME, SYS_CHDIR, SYS_GETCWD, SYS_PIPE, SYS_DUP, SYS_DUP2,
     SYS_IOCTL, SYS_FTRUNCATE, SYS_STATFS, SYS_POLL, SYS_FSYNC, SYS_MOUNTS,
@@ -37,6 +38,7 @@ enum {
 #define EACCES 13
 #define EFAULT 14
 #define EBUSY 16
+#define EDEADLK 35
 #define EEXIST 17
 #define EXDEV 18
 #define ENODEV 19
@@ -142,8 +144,20 @@ typedef struct {
     uint64_t mem_bytes;
     uint32_t is_kernel;
     uint32_t windows;
+    uint32_t threads;
     char name[32];
 } kprocinfo_t;
+
+/* futex operations */
+#define FUTEX_WAIT 0
+#define FUTEX_WAKE 1
+
+/* per-CPU information (SYS_CPUINFO fills up to max entries, returns the CPU count) */
+typedef struct {
+    uint32_t apic_id;
+    int32_t load;                /* percent busy over the last second */
+    uint64_t busy_ms, idle_ms;
+} kcpuinfo_t;
 
 typedef struct {
     uint64_t mem_total, mem_free, mem_kernel_heap;
@@ -156,6 +170,8 @@ typedef struct {
     char os_version[32];
     char bootloader[64];
     uint64_t cpu_mhz;
+    uint32_t ncpus;
+    char gpu[64];
 } ksysinfo_t;
 
 /* spawn flags */

@@ -75,12 +75,12 @@ class QMP:
 
 class Machine:
     def __init__(self, args="", mem="1G", uefi=False, kvm=True, disk=None, res=None, extra=None,
-                 audio_wav=None, net=True, iso=None):
+                 audio_wav=None, net=True, iso=None, smp=4):
         self.tmp = tempfile.mkdtemp(prefix="qtest-")
         self.serial = os.path.join(self.tmp, "serial.log")
         self.qmp_path = os.path.join(self.tmp, "qmp.sock")
         iso = iso or self.make_iso(args, res)
-        cmd = ["qemu-system-x86_64", "-machine", "pc", "-m", mem, "-vga", "std",
+        cmd = ["qemu-system-x86_64", "-machine", "pc", "-m", mem, "-smp", str(smp), "-vga", "std",
                "-display", "none", "-serial", "file:" + self.serial,
                "-qmp", "unix:%s,server,nowait" % self.qmp_path,
                "-cdrom", iso, "-boot", "d", "-rtc", "base=localtime", "-no-reboot"]
@@ -263,10 +263,11 @@ def main():
     ap.add_argument("--nonet", action="store_true")
     ap.add_argument("--log", default=os.path.join(BUILD, "qtest-serial.log"))
     ap.add_argument("--iso")
+    ap.add_argument("--smp", type=int, default=4)
     ap.add_argument("cmds", nargs="*")
     a = ap.parse_args()
     m = Machine(args=a.args, mem=a.mem, uefi=a.uefi, kvm=not a.tcg, disk=a.disk, res=a.res,
-                audio_wav=a.wav, net=not a.nonet, iso=a.iso)
+                audio_wav=a.wav, net=not a.nonet, iso=a.iso, smp=a.smp)
     rc = 0
     try:
         m.run_script(a.cmds)

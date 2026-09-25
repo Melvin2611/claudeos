@@ -2,6 +2,7 @@
 #include <kernel.h>
 #include <mm.h>
 #include <cpu.h>
+#include <smp.h>
 
 uint64_t kernel_pml4;
 
@@ -35,21 +36,28 @@ bool vmm_map(uint64_t pml4, uint64_t va, uint64_t pa, uint64_t flags) {
     uint64_t f = irq_save();
     uint64_t *pte = walk(pml4, va, true);
     if (!pte) { irq_restore(f); return false; }
+    uint64_t old = *pte;
     *pte = (pa & PTE_ADDR) | flags | PTE_P;
-    invlpg(va);
+    if (old & PTE_P) tlb_shootdown(va >= USER_TOP ? 0 : pml4, va, 1);
+    else invlpg(va);
     irq_restore(f);
     return true;
 }
 
-uint64_t vmm_unmap(uint64_t pml4, uint64_t va) {
-    uint64_t f = irq_save();
+static uint64_t unmap_noflush(uint64_t pml4, uint64_t va) {
     uint64_t *pte = walk(pml4, va, false);
     uint64_t old = 0;
     if (pte) {
         old = *pte;
         *pte = 0;
-        invlpg(va);
     }
+    return old;
+}
+
+uint64_t vmm_unmap(uint64_t pml4, uint64_t va) {
+    uint64_t f = irq_save();
+    uint64_t old = unmap_noflush(pml4, va);
+    if (old & PTE_P) tlb_shootdown(va >= USER_TOP ? 0 : pml4, va, 1);
     irq_restore(f);
     return old;
 }
@@ -249,10 +257,23 @@ static void vm_destroy(void *p) {
     if (!rec) { irq_restore(f); klog("[vmm] vfree: bad pointer %p\n", p); return; }
     *pp = rec->next;
     irq_restore(f);
+    uint64_t *olds = rec->pages > 1 ? kmalloc(rec->pages * sizeof(uint64_t)) : 0;
+    f = irq_save();
+    uint64_t one = 0;
     for (uint64_t i = 0; i < rec->pages; i++) {
-        uint64_t old = vmm_unmap(kernel_pml4, va + i * PAGE_SIZE);
-        if ((old & PTE_P) && rec->owned) pmm_free(old & PTE_ADDR);
+        uint64_t old = unmap_noflush(kernel_pml4, va + i * PAGE_SIZE);
+        if (olds) olds[i] = old; else one = old;
     }
+    /* no CPU may still reach the frames before they are handed out again */
+    tlb_shootdown(0, va, rec->pages);
+    irq_restore(f);
+    if (rec->owned) {
+        for (uint64_t i = 0; i < rec->pages; i++) {
+            uint64_t old = olds ? olds[i] : one;
+            if (old & PTE_P) pmm_free(old & PTE_ADDR);
+        }
+    }
+    kfree(olds);
     f = irq_save();
     va_free(va, rec->pages + 1);
     irq_restore(f);

@@ -347,6 +347,7 @@ static void compose(void) {
 /* ------------------------------------------------------------------ clients & events */
 
 static gui_client_t *client_of(task_t *t) {
+    t = PROC(t);
     if (!t->gui) {
         gui_client_t *c = kzalloc(sizeof(gui_client_t));
         c->task = t;
@@ -388,12 +389,12 @@ static void send_simple(window_t *w, int type) {
 }
 
 bool gui_event_pending(task_t *t) {
-    gui_client_t *c = t->gui;
+    gui_client_t *c = PROC(t)->gui;
     return c && c->head != c->tail;
 }
 
 int gui_count_windows(task_t *t) {
-    gui_client_t *c = t->gui;
+    gui_client_t *c = PROC(t)->gui;
     return c ? c->nwindows : 0;
 }
 
@@ -405,7 +406,7 @@ window_t *win_find(int id) {
 
 static window_t *own_window(int id) {
     window_t *w = win_find(id);
-    if (!w || !w->client || w->client->task != current) return 0;
+    if (!w || !w->client || w->client->task != PROC(current)) return 0;
     return w;
 }
 
@@ -1322,7 +1323,7 @@ SYSCALL_DEF(sys_win_set_cursor) {
 SYSCALL_DEF(sys_gui_event) {
     SYSCALL_UNUSED_ARGS;
     if (!user_range_ok((void *)a1, sizeof(gui_event_t), true)) return -EFAULT;
-    gui_client_t *c = current->gui;
+    gui_client_t *c = PROC(current)->gui;
     if (!c) {
         if ((int64_t)a2 > 0) sleep_ms(a2);
         return 0;
@@ -1457,11 +1458,11 @@ SYSCALL_DEF(sys_launch) {
     SYSCALL_UNUSED_ARGS;
     char path[PATH_MAX_LEN], abs[PATH_MAX_LEN], arg[PATH_MAX_LEN];
     if (strncpy_from_user(path, (const char *)a1, sizeof(path)) < 0) return -EFAULT;
-    if (vfs_normalize(current->cwd, path, abs) < 0) return -EINVAL;
+    if (vfs_normalize(PROC(current)->cwd, path, abs) < 0) return -EINVAL;
     if (a2) {
         if (strncpy_from_user(arg, (const char *)a2, sizeof(arg)) < 0) return -EFAULT;
         char absarg[PATH_MAX_LEN];
-        if (arg[0] && arg[0] != '-' && vfs_normalize(current->cwd, arg, absarg) == 0) {
+        if (arg[0] && arg[0] != '-' && vfs_normalize(PROC(current)->cwd, arg, absarg) == 0) {
             kstat_t st;
             if (vfs_stat(absarg, &st) == 0) strlcpy(arg, absarg, sizeof(arg));
         }

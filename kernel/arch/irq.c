@@ -1,6 +1,7 @@
 /* 8259 PIC, IRQ handler registry and the central interrupt dispatcher */
 #include <kernel.h>
 #include <cpu.h>
+#include <smp.h>
 
 #define PIC1_CMD 0x20
 #define PIC1_DATA 0x21
@@ -80,8 +81,19 @@ bool vmm_page_fault(regs_t *r);
 void proc_fault(regs_t *r, const char *what);
 void sched_trap_exit(regs_t *r);
 
+bool smp_is_halting(void);
+void pit_tick_update(void);
+void sched_tick_local(void);
+
 void isr_dispatch(regs_t *r) {
     uint64_t v = r->vector;
+    /* vectors that must work without the big kernel lock */
+    if (v == VEC_TLB) { tlb_service(); lapic_eoi(); return; }
+    if (v == VEC_SPURIOUS) return;
+    if (v == 2 && smp_is_halting()) { cli(); for (;;) hlt(); }
+    if (v == 32) pit_tick_update();              /* keep time even while waiting for the lock */
+
+    bkl_lock();
     if (v < 32) {
         if (v == 14 && vmm_page_fault(r)) {
             /* resolved (demand paging) */
@@ -98,6 +110,7 @@ void isr_dispatch(regs_t *r) {
             uint8_t isr = inb(irq == 7 ? PIC1_CMD : PIC2_CMD);
             if (!(isr & 0x80)) {
                 if (irq == 15) outb(PIC1_CMD, 0x20);
+                bkl_unlock();
                 return;
             }
         }
@@ -109,6 +122,16 @@ void isr_dispatch(regs_t *r) {
         sti();
         syscall_dispatch(r);
         cli();
+    } else if (v == VEC_LAPIC_TIMER) {
+        lapic_eoi();
+        sched_tick_local();
+    } else if (v == VEC_RESCHED) {
+        lapic_eoi();
+        this_cpu()->need_resched = true;
+    } else if (v >= VEC_MSI_BASE && v < VEC_MSI_BASE + VEC_MSI_COUNT) {
+        lapic_eoi();
+        msi_dispatch((uint8_t)v);
     }
     sched_trap_exit(r);
+    bkl_unlock();
 }

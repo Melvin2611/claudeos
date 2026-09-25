@@ -68,14 +68,14 @@ SYSCALL_DEF(sys_spawn) {
     if (err) return err;
     char **envp = copy_strv(a3, &err);
     if (err) { kfree(argv); return err; }
-    file_t *stdio[3] = { current->fds[0], current->fds[1], current->fds[2] };
+    file_t *stdio[3] = { PROC(current)->fds[0], PROC(current)->fds[1], PROC(current)->fds[2] };
     if (a4) {
         int map[3];
         if (copy_from_user(map, (void *)a4, sizeof(map)) < 0) { kfree(argv); kfree(envp); return -EFAULT; }
         for (int i = 0; i < 3; i++) stdio[i] = map[i] >= 0 ? fd_get(current, map[i]) : 0;
     }
     char *defargv[2] = { path, 0 };
-    r = proc_spawn(path, argv ? argv : defargv, envp, stdio, current->cwd, current->pid, (int)a5);
+    r = proc_spawn(path, argv ? argv : defargv, envp, stdio, PROC(current)->cwd, PROC(current)->pid, (int)a5);
     kfree(argv);
     kfree(envp);
     return r;
@@ -90,8 +90,8 @@ SYSCALL_DEF(sys_waitpid) {
     return r;
 }
 
-SYSCALL_DEF(sys_getpid) { SYSCALL_UNUSED_ARGS; return current->pid; }
-SYSCALL_DEF(sys_getppid) { SYSCALL_UNUSED_ARGS; return current->ppid; }
+SYSCALL_DEF(sys_getpid) { SYSCALL_UNUSED_ARGS; return PROC(current)->pid; }
+SYSCALL_DEF(sys_getppid) { SYSCALL_UNUSED_ARGS; return PROC(current)->ppid; }
 SYSCALL_DEF(sys_kill) { SYSCALL_UNUSED_ARGS; return proc_kill((int)a1, (int)a2); }
 SYSCALL_DEF(sys_sleep) { SYSCALL_UNUSED_ARGS; sleep_ms(a1); return current->killed ? -EINTR : 0; }
 SYSCALL_DEF(sys_yield) { SYSCALL_UNUSED_ARGS; yield(); return 0; }
@@ -99,6 +99,45 @@ SYSCALL_DEF(sys_sbrk) { SYSCALL_UNUSED_ARGS; return proc_sbrk((long)a1); }
 SYSCALL_DEF(sys_uptime) { SYSCALL_UNUSED_ARGS; return (long)uptime_ms(); }
 SYSCALL_DEF(sys_time) { SYSCALL_UNUSED_ARGS; return (long)time_now(); }
 SYSCALL_DEF(sys_settime) { SYSCALL_UNUSED_ARGS; time_set(a1); return 0; }
+
+/* thread_create(entry, arg, stack_top, tid_ptr, tls) */
+SYSCALL_DEF(sys_thread_create) {
+    SYSCALL_UNUSED_ARGS;
+    if (a1 >= USER_TOP || a3 >= USER_TOP || a4 >= USER_TOP || a5 >= USER_TOP) return -EFAULT;
+    return proc_thread_create(a1, a2, a3, a4, a5, 0);
+}
+
+/* set the FS base of the calling thread (thread-local storage) */
+SYSCALL_DEF(sys_set_fs) {
+    SYSCALL_UNUSED_ARGS;
+    if (a1 >= USER_TOP) return -EFAULT;
+    current->fs_base = a1;
+    wrmsr(0xC0000100, a1);
+    return 0;
+}
+SYSCALL_DEF(sys_thread_exit) { SYSCALL_UNUSED_ARGS; thread_exit((int)a1); }
+SYSCALL_DEF(sys_gettid) { SYSCALL_UNUSED_ARGS; return current->pid; }
+
+/* futex(addr, op, val, timeout_ms (-1 = forever)) */
+SYSCALL_DEF(sys_futex) {
+    SYSCALL_UNUSED_ARGS;
+    if (a1 >= USER_TOP) return -EFAULT;
+    if (a2 == FUTEX_WAIT) return futex_wait(a1, (uint32_t)a3, (int64_t)a4);
+    if (a2 == FUTEX_WAKE) return futex_wake(current->cr3, a1, (int)a3);
+    return -EINVAL;
+}
+
+/* cpuinfo(kcpuinfo_t *buf, max): returns the number of CPUs */
+SYSCALL_DEF(sys_cpuinfo) {
+    SYSCALL_UNUSED_ARGS;
+    int n = MIN((int)a2, cpu_count);
+    if (n > 0 && !user_range_ok((void *)a1, n * sizeof(kcpuinfo_t), true)) return -EFAULT;
+    for (int i = 0; i < n; i++) {
+        kcpuinfo_t ci = { cpus[i].apic_id, cpus[i].load, cpus[i].busy_ms, cpus[i].idle_ms };
+        memcpy((kcpuinfo_t *)a1 + i, &ci, sizeof(ci));
+    }
+    return cpu_count;
+}
 
 static int count_windows(task_t *t);
 
@@ -109,15 +148,21 @@ SYSCALL_DEF(sys_procinfo) {
     uint64_t idx = 0;
     uint64_t f = irq_save();
     for (task_t *t = task_list(); t; t = t->all_next) {
-        if (t->state == T_DEAD) continue;
+        if (t->state == T_DEAD || t->leader != t) continue;   /* one entry per process */
         if (idx++ != a1) continue;
         memset(&info, 0, sizeof(info));
         info.pid = t->pid;
         info.ppid = t->ppid;
         info.state = t->state == T_RUNNING ? PS_RUNNING : t->state == T_READY ? PS_READY :
                      t->state == T_BLOCKED ? PS_BLOCKED : t->state == T_SLEEPING ? PS_SLEEPING : PS_ZOMBIE;
-        info.cpu_percent = t->cpu_percent;
-        info.cpu_ms = t->cpu_ms;
+        info.cpu_percent = 0;
+        info.cpu_ms = 0;
+        for (task_t *th = task_list(); th; th = th->all_next) {
+            if (th->leader != t || th->state == T_DEAD) continue;
+            info.cpu_percent += th->cpu_percent;
+            info.cpu_ms += th->cpu_ms;
+            info.threads++;
+        }
         info.start_ms = t->start_ms;
         info.mem_bytes = t->user_pages * PAGE_SIZE + KSTACK_SIZE;
         info.is_kernel = !t->is_user;
@@ -143,7 +188,7 @@ SYSCALL_DEF(sys_sysinfo) {
     si.mem_free = pmm_free_pages() * PAGE_SIZE;
     si.mem_kernel_heap = heap_used_bytes();
     si.uptime_ms = uptime_ms();
-    for (task_t *t = task_list(); t; t = t->all_next) if (t->state != T_DEAD) si.nprocs++;
+    for (task_t *t = task_list(); t; t = t->all_next) if (t->state != T_DEAD && t->leader == t) si.nprocs++;
     si.screen_w = fb.width;
     si.screen_h = fb.height;
     strlcpy(si.cpu_vendor, cpu_vendor, sizeof(si.cpu_vendor));
@@ -153,9 +198,14 @@ SYSCALL_DEF(sys_sysinfo) {
     strlcpy(si.bootloader, bootinfo.loader, sizeof(si.bootloader));
     extern uint64_t cpu_mhz;
     si.cpu_mhz = cpu_mhz;
+    si.ncpus = cpu_count;
+    extern void pci_gpu_name(char *out, size_t n);
+    pci_gpu_name(si.gpu, sizeof(si.gpu));
     memcpy((void *)a1, &si, sizeof(si));
     return 0;
 }
+
+__attribute__((weak)) void pci_gpu_name(char *out, size_t n) { strlcpy(out, "Unknown", n); }
 
 __attribute__((weak)) void power_off(void) { for (;;) hlt(); }
 __attribute__((weak)) void power_reboot(void) { outb(0x64, 0xFE); for (;;) hlt(); }
@@ -202,7 +252,7 @@ SYSCALL_DEF(sys_close) {
     SYSCALL_UNUSED_ARGS;
     file_t *f = fd_get(current, (int)a1);
     if (!f) return -EBADF;
-    current->fds[a1] = 0;
+    PROC(current)->fds[a1] = 0;
     file_close(f);
     return 0;
 }
@@ -288,21 +338,21 @@ SYSCALL_DEF(sys_chdir) {
     char path[PATH_MAX_LEN], abs[PATH_MAX_LEN];
     int r = get_path(a1, path);
     if (r < 0) return r;
-    r = vfs_normalize(current->cwd, path, abs);
+    r = vfs_normalize(PROC(current)->cwd, path, abs);
     if (r < 0) return r;
     kstat_t st;
     r = vfs_stat(abs, &st);
     if (r < 0) return r;
     if (st.type != FT_DIR) return -ENOTDIR;
-    strlcpy(current->cwd, abs, sizeof(current->cwd));
+    strlcpy(PROC(current)->cwd, abs, sizeof(PROC(current)->cwd));
     return 0;
 }
 
 SYSCALL_DEF(sys_getcwd) {
     SYSCALL_UNUSED_ARGS;
-    size_t l = strlen(current->cwd) + 1;
+    size_t l = strlen(PROC(current)->cwd) + 1;
     if (l > a2) return -ERANGE;
-    return copy_to_user((void *)a1, current->cwd, l) < 0 ? -EFAULT : (long)l;
+    return copy_to_user((void *)a1, PROC(current)->cwd, l) < 0 ? -EFAULT : (long)l;
 }
 
 SYSCALL_DEF(sys_pipe) {
@@ -314,7 +364,7 @@ SYSCALL_DEF(sys_pipe) {
     int fr = fd_install(current, rd);
     if (fr < 0) { file_close(rd); file_close(wr); return fr; }
     int fw = fd_install(current, wr);
-    if (fw < 0) { current->fds[fr] = 0; file_close(rd); file_close(wr); return fw; }
+    if (fw < 0) { PROC(current)->fds[fr] = 0; file_close(rd); file_close(wr); return fw; }
     if (a2 & O_NONBLOCK) { rd->flags |= O_NONBLOCK; wr->flags |= O_NONBLOCK; }
     ((int *)a1)[0] = fr;
     ((int *)a1)[1] = fw;
@@ -336,8 +386,8 @@ SYSCALL_DEF(sys_dup2) {
     if (!f || a2 >= MAX_FDS) return -EBADF;
     if (a1 == a2) return (long)a2;
     file_ref(f);
-    if (current->fds[a2]) file_close(current->fds[a2]);
-    current->fds[a2] = f;
+    if (PROC(current)->fds[a2]) file_close(PROC(current)->fds[a2]);
+    PROC(current)->fds[a2] = f;
     return (long)a2;
 }
 
@@ -461,6 +511,12 @@ void syscall_init(void) {
     syscall_register(SYS_PROCINFO, sys_procinfo);
     syscall_register(SYS_SYSINFO, sys_sysinfo);
     syscall_register(SYS_POWER, sys_power);
+    syscall_register(SYS_THREAD_CREATE, sys_thread_create);
+    syscall_register(SYS_THREAD_EXIT, sys_thread_exit);
+    syscall_register(SYS_FUTEX, sys_futex);
+    syscall_register(SYS_GETTID, sys_gettid);
+    syscall_register(SYS_CPUINFO, sys_cpuinfo);
+    syscall_register(SYS_SET_FS, sys_set_fs);
     syscall_register(SYS_DMESG, sys_dmesg);
     syscall_register(SYS_BEEP, sys_beep);
     syscall_register(SYS_OPEN, sys_open);

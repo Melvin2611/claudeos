@@ -47,6 +47,8 @@ void __assert_fail(const char *expr, const char *file, int line) {
 
 void __libc_start(int argc, char **argv, char **envp) {
     environ = envp;
+    extern void __libc_init_threads(void);
+    __libc_init_threads();
     __stdio_init();
     exit(main(argc, argv, envp));
 }

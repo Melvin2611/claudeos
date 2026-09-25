@@ -2,7 +2,37 @@
 #include <kernel.h>
 #include <boot.h>
 #include <mm.h>
+#include <smp.h>
 #include "drivers.h"
+
+/* MADT results */
+uint32_t acpi_cpu_apic_ids[MAX_CPUS];
+int acpi_cpu_count;
+uint64_t acpi_lapic_phys = 0xFEE00000;
+
+static void parse_madt(const uint8_t *m, uint32_t len) {
+    acpi_lapic_phys = *(const uint32_t *)(m + 36);
+    for (uint32_t off = 44; off + 2 <= len;) {
+        uint8_t type = m[off], l = m[off + 1];
+        if (l < 2) break;
+        uint32_t id = 0xFFFFFFFF, flags = 0;
+        if (type == 0 && l >= 8) {                /* processor local APIC */
+            id = m[off + 3];
+            flags = *(const uint32_t *)(m + off + 4);
+        } else if (type == 9 && l >= 16) {        /* processor local x2APIC */
+            id = *(const uint32_t *)(m + off + 4);
+            flags = *(const uint32_t *)(m + off + 8);
+        } else if (type == 5 && l >= 12) {        /* 64-bit LAPIC address override */
+            acpi_lapic_phys = *(const uint64_t *)(m + off + 4);
+        }
+        if (id != 0xFFFFFFFF && (flags & 1) && acpi_cpu_count < MAX_CPUS) {
+            bool dup = false;
+            for (int i = 0; i < acpi_cpu_count; i++) if (acpi_cpu_apic_ids[i] == id) dup = true;
+            if (!dup) acpi_cpu_apic_ids[acpi_cpu_count++] = id;
+        }
+        off += l;
+    }
+}
 
 void fs_sync_all(void);
 
@@ -81,9 +111,14 @@ void acpi_init(void) {
         uint64_t a = entry == 8 ? *(uint64_t *)(root + off) : *(uint32_t *)(root + off);
         uint8_t *h = map_table(a, 0);
         if (!h) continue;
-        bool is_fadt = !memcmp(h, "FACP", 4);
+        bool is_fadt = !memcmp(h, "FACP", 4), is_madt = !memcmp(h, "APIC", 4);
         iounmap(h);
-        if (is_fadt) { fadt_phys = a; break; }
+        if (is_fadt) fadt_phys = a;
+        if (is_madt) {
+            uint32_t mlen;
+            uint8_t *m = map_table(a, &mlen);
+            if (m) { parse_madt(m, mlen); iounmap(m); }
+        }
     }
     iounmap(root);
     if (!fadt_phys) { klog("[acpi] no FADT\n"); return; }
@@ -109,6 +144,7 @@ void acpi_init(void) {
     uint8_t *d = map_table(dsdt, &dlen);
     if (d) { parse_s5(d, dlen); iounmap(d); }
     acpi.ok = true;
+    klog("[acpi] %d CPU(s) in MADT, local APIC at %lx\n", acpi_cpu_count, acpi_lapic_phys);
     klog("[acpi] PM1a_CNT %x, S5 %s (typ %u), reset register %s\n", acpi.pm1a_cnt, acpi.s5_found ? "found" : "missing",
          acpi.slp_typa, acpi.reset_ok ? "yes" : "no");
 }

@@ -19,7 +19,10 @@ static void backtrace(uint64_t rbp) {
     }
 }
 
+void smp_halt_others(void);
+
 static NORETURN void do_panic(regs_t *r) {
+    smp_halt_others();
     kprintf("\n*** KERNEL PANIC: %s\n", panic_msg);
     if (r) {
         kprintf("RIP=%lx CS=%lx RFLAGS=%lx RSP=%lx SS=%lx ERR=%lx CR2=%lx\n", r->rip, r->cs, r->rflags,

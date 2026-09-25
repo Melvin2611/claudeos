@@ -6,6 +6,7 @@ typedef void (*irq_handler_t)(regs_t *r, void *ctx);
 void gdt_init(void);
 void tss_set_rsp0(uint64_t rsp0);
 void idt_init(void);
+void idt_load(void);
 void cpu_init_features(void);
 bool cpu_has_nx(void);
 void cpu_get_brand(char *out, size_t n);

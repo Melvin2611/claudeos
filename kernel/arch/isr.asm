@@ -17,6 +17,11 @@ isr_stub_%[i]:
 %endrep
 
 isr_common:
+    ; coming from user mode: switch GS to the per-CPU block
+    test qword [rsp + 24], 3
+    jz .from_kernel
+    swapgs
+.from_kernel:
     push rax
     push rbx
     push rcx
@@ -53,6 +58,10 @@ trap_return:
     pop rbx
     pop rax
     add rsp, 16
+    test qword [rsp + 8], 3
+    jz .to_kernel
+    swapgs
+.to_kernel:
     iretq
 
 section .rodata

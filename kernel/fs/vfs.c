@@ -135,7 +135,7 @@ static int walk(const char *abspath, vnode_t **out) {
     return 0;
 }
 
-static const char *task_cwd(void) { return current ? current->cwd : "/"; }
+static const char *task_cwd(void) { return current ? PROC(current)->cwd : "/"; }
 
 int vfs_lookup(const char *path, vnode_t **out) {
     char abs[PATH_MAX_LEN];
@@ -423,14 +423,14 @@ int vfs_write_all(const char *path, const void *data, size_t size) {
 
 int fd_install(task_t *t, file_t *f) {
     for (int i = 0; i < MAX_FDS; i++) {
-        if (!t->fds[i]) { t->fds[i] = f; return i; }
+        if (!PROC(t)->fds[i]) { PROC(t)->fds[i] = f; return i; }
     }
     return -EMFILE;
 }
 
 file_t *fd_get(task_t *t, int fd) {
     if (fd < 0 || fd >= MAX_FDS) return 0;
-    return t->fds[fd];
+    return PROC(t)->fds[fd];
 }
 
 void vfs_init(void) {

@@ -15,6 +15,7 @@ int spawn(const char *path, char *const argv[], char *const envp[], const int fd
 int spawnv(const char *path, char *const argv[]);          /* inherits stdio, uses environ */
 int proc_info(int index, kprocinfo_t *out);                /* 1 = filled, 0 = end */
 int sys_info(ksysinfo_t *out);
+int cpu_info(kcpuinfo_t *out, int max);                  /* returns the CPU count */
 uint64_t uptime_ms(void);
 int msleep(unsigned ms);
 int sched_yield(void);

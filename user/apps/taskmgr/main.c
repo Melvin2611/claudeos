@@ -13,6 +13,9 @@ static ui_widget_t *list, *end_btn, *tab_proc, *tab_perf, *graphs, *info, *show_
 static kprocinfo_t procs[128];
 static int nprocs;
 static int cpu_hist[HIST], mem_hist[HIST];
+#define MAXCPU 32
+static int core_hist[MAXCPU][HIST];
+static int ncores;
 static int hist_len;
 static int page;
 static ksysinfo_t si;
@@ -27,16 +30,21 @@ static void refresh(void *arg) {
     sys_info(&si);
     nprocs = 0;
     kprocinfo_t p;
-    int idle_pct = 0, total = 0;
     for (int i = 0; proc_info(i, &p) > 0 && nprocs < 128; i++) {
-        if (!strcmp(p.name, "idle")) idle_pct = p.cpu_percent;
-        else total += p.cpu_percent;
+        if (!strncmp(p.name, "idle", 4) && p.is_kernel) continue;
         procs[nprocs++] = p;
     }
-    int cpu = 100 - idle_pct;
-    if (cpu < 0) cpu = 0;
-    if (cpu > 100) cpu = 100;
-    (void)total;
+    kcpuinfo_t ci[MAXCPU];
+    ncores = cpu_info(ci, MAXCPU);
+    if (ncores < 1) ncores = 1;
+    if (ncores > MAXCPU) ncores = MAXCPU;
+    int cpu = 0;
+    for (int i = 0; i < ncores; i++) {
+        memmove(core_hist[i], core_hist[i] + 1, sizeof(int) * (HIST - 1));
+        core_hist[i][HIST - 1] = ci[i].load;
+        cpu += ci[i].load;
+    }
+    cpu /= ncores;
     int mem = si.mem_total ? (int)((si.mem_total - si.mem_free) * 100 / si.mem_total) : 0;
     if (hist_len < HIST) hist_len++;
     memmove(cpu_hist, cpu_hist + 1, sizeof(int) * (HIST - 1));
@@ -68,8 +76,8 @@ static void refresh(void *arg) {
     format_size(si.mem_total, tot, sizeof(tot));
     format_size(si.mem_kernel_heap, heap, sizeof(heap));
     unsigned long up = (unsigned long)(si.uptime_ms / 1000);
-    snprintf(buf, sizeof(buf), "CPU: %s  \xE2\x80\xA2  %d %% used\nMemory: %s of %s (%d %%)  \xE2\x80\xA2  kernel heap %s\nProcesses: %u  \xE2\x80\xA2  Uptime: %lu:%02lu:%02lu",
-             si.cpu_brand, cpu, used, tot, mem, heap, si.nprocs, up / 3600, up / 60 % 60, up % 60);
+    snprintf(buf, sizeof(buf), "CPU: %s, %d core%s  \xE2\x80\xA2  %d %% used\nMemory: %s of %s (%d %%)  \xE2\x80\xA2  kernel heap %s\nProcesses: %u  \xE2\x80\xA2  Uptime: %lu:%02lu:%02lu",
+             si.cpu_brand, ncores, ncores == 1 ? "" : "s", cpu, used, tot, mem, heap, si.nprocs, up / 3600, up / 60 % 60, up % 60);
     ui_set_text(info, buf);
     ui_widget_invalidate(graphs);
 }
@@ -77,11 +85,12 @@ static void refresh(void *arg) {
 static void draw_graph(surface_t *s, rect_t r, int *data, uint32_t color, const char *title, int value) {
     gfx_fill_rounded(s, r.x, r.y, r.w, r.h, 8, ui_theme.input_bg);
     gfx_rounded_rect(s, r.x, r.y, r.w, r.h, 8, ui_theme.input_border);
-    rect_t g = mkrect(r.x + 12, r.y + 36, r.w - 24, r.h - 48);
+    bool small = r.h < 90;
+    rect_t g = small ? mkrect(r.x + 6, r.y + 26, r.w - 12, r.h - 32) : mkrect(r.x + 12, r.y + 36, r.w - 24, r.h - 48);
     for (int i = 1; i < 4; i++) gfx_hline(s, g.x, g.y + g.h * i / 4, g.w, WITH_ALPHA(ui_theme.window_text_dim, 40));
     char t[64];
     snprintf(t, sizeof(t), "%s  %d %%", title, value);
-    font_draw(s, &ui_font_bold, r.x + 12, r.y + 10, t, ui_theme.window_text);
+    font_draw(s, small ? &ui_font : &ui_font_bold, r.x + (small ? 8 : 12), r.y + (small ? 5 : 10), t, ui_theme.window_text);
     if (hist_len < 2) return;
     int prev_x = 0, prev_y = 0;
     for (int i = HIST - hist_len; i < HIST; i++) {
@@ -102,9 +111,24 @@ static void draw_graph(surface_t *s, rect_t r, int *data, uint32_t color, const 
 }
 
 static void draw_graphs(ui_widget_t *w, surface_t *s) {
-    int h = (w->r.h - 12) / 2;
+    /* overall CPU, one small graph per core, memory */
+    int cols = ncores <= 4 ? ncores : ncores <= 8 ? 4 : 8;
+    int rows = (ncores + cols - 1) / cols;
+    int core_h = ncores > 1 ? MIN(80, (w->r.h / 3) / rows) : 0;
+    int cores_h = ncores > 1 ? rows * (core_h + 8) : 0;
+    int h = (w->r.h - 12 - cores_h) / 2;
     draw_graph(s, mkrect(w->r.x, w->r.y, w->r.w, h), cpu_hist, ui_theme.accent, "CPU", cpu_hist[HIST - 1]);
-    draw_graph(s, mkrect(w->r.x, w->r.y + h + 12, w->r.w, h), mem_hist, 0xFF4ADE80, "Memory", mem_hist[HIST - 1]);
+    if (ncores > 1) {
+        int cw = (w->r.w - (cols - 1) * 8) / cols;
+        for (int i = 0; i < ncores; i++) {
+            int cx = w->r.x + (i % cols) * (cw + 8), cy = w->r.y + h + 8 + (i / cols) * (core_h + 8);
+            char t[16];
+            snprintf(t, sizeof(t), "Core %d", i);
+            draw_graph(s, mkrect(cx, cy, cw, core_h), core_hist[i], ui_theme.accent, t, core_hist[i][HIST - 1]);
+        }
+    }
+    draw_graph(s, mkrect(w->r.x, w->r.y + h + 12 + cores_h, w->r.w, h), mem_hist, 0xFF4ADE80, "Memory",
+               mem_hist[HIST - 1]);
 }
 
 static void set_page(int p) {

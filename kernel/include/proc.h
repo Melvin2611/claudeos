@@ -12,6 +12,11 @@
 int proc_spawn(const char *path, char *const argv[], char *const envp[], file_t *stdio[3],
                const char *cwd, int ppid, int flags);
 NORETURN void proc_exit(int code);
+NORETURN void thread_exit(int code);
+int proc_thread_create(uint64_t entry, uint64_t arg, uint64_t stack_top, uint64_t tid_ptr, uint64_t tls,
+                       const regs_t *clone_regs);
+int futex_wait(uint64_t addr, uint32_t val, int64_t timeout_ms);
+int futex_wake(uint64_t cr3, uint64_t addr, int n);
 int proc_kill(int pid, int sig);
 int proc_waitpid(int pid, int *status, int flags);
 long proc_sbrk(long incr);

@@ -24,6 +24,7 @@ typedef struct {
 #define PF_W 2
 
 extern void uthread_trampoline(void);
+static void setup_user_frame(task_t *t, uint64_t rip, uint64_t rsp, uint64_t rdi, uint64_t rsi, uint64_t rdx);
 
 static uint64_t user_flags(bool write, bool exec) {
     uint64_t f = PTE_P | PTE_U | PTE_OWNED;
@@ -199,28 +200,14 @@ int proc_spawn(const char *path, char *const argv[], char *const envp[], file_t 
         t->fds[i] = f;
     }
 
-    /* initial user register frame + switch frame returning into uthread_trampoline */
-    uint64_t *ksp = (uint64_t *)t->kstack_top;
-    regs_t *frame = (regs_t *)((uint8_t *)ksp - sizeof(regs_t));
-    memset(frame, 0, sizeof(*frame));
-    frame->rip = entry;
-    frame->cs = USER_CS;
-    frame->rflags = 0x202;
-    frame->rsp = sp;
-    frame->ss = USER_DS;
-    frame->rdi = argc;
-    frame->rsi = uargv;
-    frame->rdx = uenvp;
-    uint64_t *s = (uint64_t *)frame;
-    *--s = (uint64_t)uthread_trampoline;
-    for (int i = 0; i < 6; i++) *--s = 0;   /* rbp rbx r12 r13 r14 r15 */
-    t->rsp = (uint64_t)s;
+    setup_user_frame(t, entry, sp, argc, uargv, uenvp);
     klog("[proc] spawned pid %d: %s\n", t->pid, abs);
     sched_add(t);
     return t->pid;
 }
 
 void proc_release_resources(task_t *t) {
+    if (t->leader != t) return;       /* threads share the leader's address space */
     if (t->cr3 && t->cr3 != kernel_pml4) {
         vmm_free_space(t->cr3);
         t->cr3 = kernel_pml4;
@@ -229,9 +216,53 @@ void proc_release_resources(task_t *t) {
 
 __attribute__((weak)) void gui_proc_exit(task_t *t) { UNUSED(t); }
 
+/* ask every other thread of the group to terminate */
+static void kill_other_threads(task_t *leader, task_t *except) {
+    for (task_t *th = task_list(); th; th = th->all_next) {
+        if (th->leader != leader || th == except || th->state == T_DEAD || th->state == T_ZOMBIE) continue;
+        th->killed = true;
+        task_wake(th);
+    }
+}
+
+int futex_wake(uint64_t cr3, uint64_t addr, int n);
+
+/* terminate the calling thread only (the process lives on) */
+NORETURN void thread_exit(int code) {
+    task_t *self = current, *L = PROC(self);
+    if (self == L) {
+        /* the main thread: wait for the other threads, then end the process */
+        while (L->nthreads > 1 && !L->group_exit) wq_wait_timeout(&L->thread_wq, 100);
+        proc_exit(L->group_exit ? L->exit_code : code);
+    }
+    self->exit_code = code;
+    if (self->clear_tid) {
+        uint32_t zero = 0;
+        if (copy_to_user((void *)self->clear_tid, &zero, 4) == 0) futex_wake(self->cr3, self->clear_tid, 0x7FFFFFFF);
+    }
+    sched_exit(T_DEAD);               /* the reaper updates the leader's thread count */
+}
+
+/* terminate the whole process (exit_group semantics) */
 NORETURN void proc_exit(int code) {
-    task_t *t = current;
-    t->exit_code = code;
+    task_t *self = current, *t = PROC(self);
+    if (!t->group_exit) {
+        t->group_exit = true;
+        t->exit_code = code;
+    }
+    if (t->nthreads > 1 || self != t) {
+        kill_other_threads(t, self);
+        if (self != t) {
+            /* the leader finishes the teardown once all threads are gone */
+            t->killed = true;
+            task_wake(t);
+            thread_exit(code);
+        }
+        while (t->nthreads > 1) {
+            kill_other_threads(t, self);
+            wq_wait_timeout(&t->thread_wq, 50);
+        }
+    }
     gui_proc_exit(t);
     for (int i = 0; i < MAX_FDS; i++) {
         if (t->fds[i]) {
@@ -244,7 +275,7 @@ NORETURN void proc_exit(int code) {
     task_t *dead[32];
     int ndead = 0;
     for (task_t *c = task_list(); c; c = c->all_next) {
-        if (c->ppid == t->pid) {
+        if (c->leader == c && c->ppid == t->pid) {
             c->ppid = 0;
             c->waited = true;
             if (c->state == T_ZOMBIE && !c->kstack && ndead < 32) dead[ndead++] = c;
@@ -261,16 +292,20 @@ NORETURN void proc_exit(int code) {
 
 void proc_check_killed(regs_t *r) {
     UNUSED(r);
-    proc_exit(current->exit_code ? current->exit_code : 137);
+    task_t *L = PROC(current);
+    if (current != L) thread_exit(137);
+    proc_exit(L->exit_code ? L->exit_code : 137);
 }
 
 int proc_kill(int pid, int sig) {
     task_t *t = task_find(pid);
+    if (t) t = PROC(t);
     if (!t || t->state == T_ZOMBIE) return -ESRCH;
     if (!t->is_user) return -EPERM;
-    t->exit_code = 128 + sig;
+    if (!t->group_exit) t->exit_code = 128 + sig;
     t->killed = true;
     task_wake(t);
+    kill_other_threads(t, 0);
     return 0;
 }
 
@@ -280,11 +315,12 @@ static void free_zombie(task_t *c) {
 }
 
 int proc_waitpid(int pid, int *status, int flags) {
+    task_t *me = PROC(current);
     for (;;) {
         uint64_t f = irq_save();
         bool have_child = false;
         for (task_t *c = task_list(); c; c = c->all_next) {
-            if (c->ppid != current->pid || c->waited) continue;
+            if (c->leader != c || c->ppid != me->pid || c->waited) continue;
             if (pid > 0 && c->pid != pid) continue;
             have_child = true;
             if (c->state == T_ZOMBIE && !c->kstack) {
@@ -299,13 +335,115 @@ int proc_waitpid(int pid, int *status, int flags) {
         if (!have_child) { irq_restore(f); return -ECHILD; }
         if (flags & 1) { irq_restore(f); return 0; }
         if (current->killed) { irq_restore(f); return -EINTR; }
-        wq_wait_timeout(&current->child_wq, 100);
+        wq_wait_timeout(&me->child_wq, 100);
         irq_restore(f);
     }
 }
 
+/* ------------------------------------------------------------------ threads */
+
+static void setup_user_frame(task_t *t, uint64_t rip, uint64_t rsp, uint64_t rdi, uint64_t rsi, uint64_t rdx) {
+    uint64_t *ksp = (uint64_t *)t->kstack_top;
+    regs_t *frame = (regs_t *)((uint8_t *)ksp - sizeof(regs_t));
+    memset(frame, 0, sizeof(*frame));
+    frame->rip = rip;
+    frame->cs = USER_CS;
+    frame->rflags = 0x202;
+    frame->rsp = rsp;
+    frame->ss = USER_DS;
+    frame->rdi = rdi;
+    frame->rsi = rsi;
+    frame->rdx = rdx;
+    uint64_t *s = (uint64_t *)frame;
+    *--s = (uint64_t)uthread_trampoline;
+    for (int i = 0; i < 6; i++) *--s = 0;   /* rbp rbx r12 r13 r14 r15 */
+    t->rsp = (uint64_t)s;
+}
+
+/* create a thread in the current process; returns its id */
+int proc_thread_create(uint64_t entry, uint64_t arg, uint64_t stack_top, uint64_t tid_ptr, uint64_t tls,
+                       const regs_t *clone_regs) {
+    task_t *L = PROC(current);
+    if (L->group_exit) return -EINTR;
+    if (L->nthreads >= 512) return -EAGAIN;
+    task_t *t = task_alloc(L->name);
+    if (!t) return -ENOMEM;
+    t->is_user = true;
+    t->leader = L;
+    t->cr3 = L->cr3;
+    t->prio = current->prio;
+    t->waited = true;
+    t->clear_tid = tid_ptr;
+    t->fs_base = tls ? tls : current->fs_base;
+    t->gs_base = current->gs_base;
+    L->nthreads++;
+    if (clone_regs) {
+        /* Linux clone(): the child continues at the same place with rax = 0 */
+        setup_user_frame(t, 0, 0, 0, 0, 0);
+        regs_t *frame = (regs_t *)(t->kstack_top - sizeof(regs_t));
+        *frame = *clone_regs;
+        frame->rax = 0;
+        if (stack_top) frame->rsp = stack_top;
+    } else {
+        setup_user_frame(t, entry, (stack_top & ~15ULL) - 8, arg, 0, 0);
+    }
+    if (tid_ptr) {
+        uint32_t tid = t->pid;
+        copy_to_user((void *)tid_ptr, &tid, 4);
+    }
+    sched_add(t);
+    return t->pid;
+}
+
+/* ------------------------------------------------------------------ futex */
+
+#define FUTEX_BUCKETS 64
+static waitq_t futex_wq[FUTEX_BUCKETS];
+
+static waitq_t *futex_bucket(uint64_t cr3, uint64_t addr) {
+    return &futex_wq[((addr >> 2) ^ (cr3 >> 12)) % FUTEX_BUCKETS];
+}
+
+/* wait while *addr == val; timeout_ms < 0: forever. 0 = woken, -EAGAIN, -ETIMEDOUT, -EINTR */
+int futex_wait(uint64_t addr, uint32_t val, int64_t timeout_ms) {
+    if (addr & 3) return -EINVAL;
+    uint32_t cur;
+    uint64_t f = irq_save();
+    if (copy_from_user(&cur, (void *)addr, 4) < 0) { irq_restore(f); return -EFAULT; }
+    if (cur != val) { irq_restore(f); return -EAGAIN; }
+    if (current->killed) { irq_restore(f); return -EINTR; }
+    task_t *me = current;
+    me->futex_key = addr;
+    me->futex_cr3 = me->cr3;
+    bool ok = true;
+    if (timeout_ms < 0) wq_wait(futex_bucket(me->cr3, addr));
+    else ok = wq_wait_timeout(futex_bucket(me->cr3, addr), (uint64_t)timeout_ms);
+    me->futex_key = 0;
+    irq_restore(f);
+    if (me->killed) return -EINTR;
+    return ok ? 0 : -ETIMEDOUT;
+}
+
+int futex_wake(uint64_t cr3, uint64_t addr, int n) {
+    waitq_t *wq = futex_bucket(cr3, addr);
+    int woken = 0;
+    uint64_t f = irq_save();
+    while (woken < n) {
+        /* wake the longest waiter with a matching key */
+        task_t *match = 0;
+        for (task_t *t = wq->head; t; t = t->wq_next)
+            if (t->futex_key == addr && t->futex_cr3 == cr3) match = t;
+        if (!match) break;
+        match->futex_key = 0;
+        task_wake(match);
+        woken++;
+    }
+    irq_restore(f);
+    return woken;
+}
+
 long proc_sbrk(long incr) {
-    task_t *t = current;
+    task_t *t = PROC(current);
     uint64_t old = t->brk;
     if (incr == 0) return (long)old;
     uint64_t nb = old + incr;
@@ -328,6 +466,7 @@ long proc_sbrk(long incr) {
 bool proc_demand_page(uint64_t addr, bool write) {
     task_t *t = current;
     if (!t || !t->is_user) return false;
+    t = PROC(t);
     uint64_t lim = USER_STACK_TOP - USER_STACK_MAX;
     if (addr < lim || addr >= USER_STACK_TOP) return false;
     if (addr >= t->stack_low) return false;

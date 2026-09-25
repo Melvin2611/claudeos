@@ -11,6 +11,7 @@
 #include <input.h>
 #include <pci.h>
 #include <blk.h>
+#include <smp.h>
 
 void pci_register_syscalls(void);
 #include "drivers.h"
@@ -148,6 +149,10 @@ static int init_thread(void *arg) {
     UNUSED(arg);
     cpu_measure_mhz();
     rtc_init();
+    extern void acpi_init(void);
+    acpi_init();
+    bootcon_status("Starting processors...");
+    smp_init();
     bootcon_status("Mounting file systems...");
     vfs_init();
     load_initrd();
@@ -160,8 +165,6 @@ static int init_thread(void *arg) {
     bootcon_status("Detecting hardware...");
     pci_init();
     pci_register_syscalls();
-    extern void acpi_init(void);
-    acpi_init();
     ata_init();
     storage_init();
     storage_register_syscalls();

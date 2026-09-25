@@ -1,5 +1,6 @@
 #pragma once
 #include <kernel.h>
+#include <smp.h>
 
 #define MAX_FDS 64
 #define KSTACK_SIZE (32 * 1024)
@@ -25,6 +26,17 @@ typedef struct task {
     uint64_t cr3;
     bool is_user;
     int prio;                     /* 0 normal, 1 high (window server) */
+    int cpu;                      /* CPU the task last ran on */
+    int bkl_depth;                /* big kernel lock depth saved across switches */
+    uint64_t fs_base, gs_base;    /* user FS/GS base (TLS) */
+
+    /* threads: process-wide state lives in the thread group leader */
+    struct task *leader;          /* self for single-threaded processes and kernel threads */
+    int nthreads;                 /* leader: live (not yet reaped) threads including itself */
+    waitq_t thread_wq;            /* leader: woken whenever a thread is reaped */
+    bool group_exit;              /* leader: the process is exiting */
+    uint64_t clear_tid;           /* user address zeroed + futex-woken when the thread exits */
+    uint64_t futex_key, futex_cr3;
 
     /* scheduling bookkeeping */
     uint64_t wake_at;
@@ -50,8 +62,8 @@ typedef struct task {
     char **env;                   /* unused in kernel, kept by spawn */
 } task_t;
 
-extern task_t *current;
-extern volatile bool need_resched;
+#define current ((task_t *)get_current())
+#define PROC(t) ((t)->leader)
 
 void sched_init(void);
 task_t *kthread_create(const char *name, int (*fn)(void *), void *arg);
@@ -62,6 +74,9 @@ void sleep_ms(uint64_t ms);
 NORETURN void kthread_exit(int code);
 NORETURN void sched_exit(int state);   /* T_DEAD (free all) or T_ZOMBIE (keep struct) */
 NORETURN void sched_idle_loop(void);
+task_t *sched_create_idle(cpu_t *c);
+void sched_tick_local(void);
+void sched_tick_global(void);
 task_t *task_alloc(const char *name);
 void task_free(task_t *t);
 task_t *task_find(int pid);

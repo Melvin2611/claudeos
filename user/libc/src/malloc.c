@@ -64,7 +64,28 @@ static block_t *grow(size_t need) {
     return b;
 }
 
+void __lock(volatile int *l);
+void __unlock(volatile int *l);
+static volatile int heap_lock;
+
+static void *malloc_unlocked(size_t n);
+static void free_unlocked(void *p);
+
 void *malloc(size_t n) {
+    __lock(&heap_lock);
+    void *p = malloc_unlocked(n);
+    __unlock(&heap_lock);
+    return p;
+}
+
+void free(void *p) {
+    if (!p) return;
+    __lock(&heap_lock);
+    free_unlocked(p);
+    __unlock(&heap_lock);
+}
+
+static void *malloc_unlocked(size_t n) {
     if (n == 0) n = 1;
     size_t need = round_up(n + HDR_SIZE);
     if (need < sizeof(block_t) + sizeof(footer_t)) need = round_up(sizeof(block_t) + sizeof(footer_t));
@@ -91,8 +112,7 @@ void *malloc(size_t n) {
     return (uint8_t *)best + HDR_SIZE;
 }
 
-void free(void *p) {
-    if (!p) return;
+static void free_unlocked(void *p) {
     block_t *b = (block_t *)((uint8_t *)p - HDR_SIZE);
     if (b->magic != MAGIC_USED) {
         static const char msg[] = "free(): invalid pointer or double free\n";
@@ -134,6 +154,7 @@ void *realloc(void *p, size_t n) {
     size_t cap = b->size - HDR_SIZE;
     if (n <= cap) return p;
     /* try to extend into the next free block */
+    __lock(&heap_lock);
     block_t *next = (block_t *)((uint8_t *)b + b->size);
     size_t need = round_up(n + HDR_SIZE);
     if ((uint8_t *)next < heap_end && next->magic == MAGIC_FREE && b->size + next->size >= need) {
@@ -145,8 +166,10 @@ void *realloc(void *p, size_t n) {
             fl_insert(rest);
             b->size = need;
         }
+        __unlock(&heap_lock);
         return p;
     }
+    __unlock(&heap_lock);
     void *q = malloc(n);
     if (!q) return 0;
     memcpy(q, p, cap);
