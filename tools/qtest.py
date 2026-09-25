@@ -111,8 +111,8 @@ class Machine:
         payload = "set gfxpayload=%s\n    " % res if res else ""
         with open(os.path.join(iso_dir, "boot/grub/grub.cfg"), "w") as f:
             f.write("set timeout=0\nset default=0\ninsmod all_video\n"
-                    "menuentry test {\n    %smultiboot2 /boot/kernel.elf %s\n"
-                    "    module2 /boot/initrd.tar initrd\n    boot\n}\n" % (payload, args))
+                    "menuentry test {\n    multiboot2 /boot/kernel.elf %s\n    %s"
+                    "    module2 /boot/initrd.tar initrd\n    boot\n}\n" % (args, payload))
         iso = os.path.join(self.tmp, "test.iso")
         subprocess.run(["grub-mkrescue", "-o", iso, iso_dir], check=True,
                        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
