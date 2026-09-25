@@ -165,6 +165,8 @@ static int init_thread(void *arg) {
     storage_register_syscalls();
     extern void audio_init(void);
     audio_init();
+    extern void net_init(void);
+    net_init();
 
     if (cmdline_has("usertest")) {
         char *argv[] = { "hello", 0 };
