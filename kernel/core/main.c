@@ -160,6 +160,8 @@ static int init_thread(void *arg) {
     bootcon_status("Detecting hardware...");
     pci_init();
     pci_register_syscalls();
+    extern void acpi_init(void);
+    acpi_init();
     ata_init();
     storage_init();
     storage_register_syscalls();
