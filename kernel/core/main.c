@@ -172,6 +172,9 @@ static int init_thread(void *arg) {
     nvme_init();
     storage_init();
     storage_register_syscalls();
+    bootcon_status("Starting USB...");
+    extern void xhci_init(void);
+    xhci_init();
     extern void audio_init(void);
     audio_init();
     extern void net_init(void);

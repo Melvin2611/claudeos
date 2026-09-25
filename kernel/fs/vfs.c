@@ -61,6 +61,37 @@ int vfs_mount(const char *path, vnode_t *root, const char *fstype, const char *d
 
 mount_t *vfs_mounts(void) { return mounts; }
 
+/* detach a mount (lazily: files that are still open keep working or fail with I/O errors) */
+int vfs_umount(const char *path) {
+    for (mount_t **pp = &mounts; *pp; pp = &(*pp)->next) {
+        mount_t *m = *pp;
+        if (strcmp(m->path, path) || !m->covered) continue;
+        if (m->ops && m->ops->sync) {
+            mutex_lock(&m->lock);
+            m->ops->sync(m);
+            mutex_unlock(&m->lock);
+        }
+        *pp = m->next;
+        m->covered->mounted_here = 0;
+        vnode_unref(m->covered);
+        m->covered = 0;
+        if (m->ops && m->ops->umount) m->ops->umount(m);
+        klog("[vfs] unmounted %s\n", path);
+        return 0;
+    }
+    return -EINVAL;
+}
+
+/* flush every mounted file system */
+void fs_sync_all(void) {
+    for (mount_t *m = mounts; m; m = m->next) {
+        if (!m->ops || !m->ops->sync) continue;
+        mutex_lock(&m->lock);
+        m->ops->sync(m);
+        mutex_unlock(&m->lock);
+    }
+}
+
 int vfs_normalize(const char *cwd, const char *path, char *out) {
     char tmp[PATH_MAX_LEN * 2];
     if (path[0] == '/') {

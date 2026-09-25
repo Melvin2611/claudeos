@@ -16,6 +16,8 @@ typedef struct blkdev {
 } blkdev_t;
 
 void blk_register(blkdev_t *d);
+void blk_unregister(blkdev_t *d);
+void storage_disk_removed(blkdev_t *disk);
 blkdev_t *blk_list(void);
 blkdev_t *blk_find(const char *name);
 /* cached access to whole sectors of any block device (partitions are translated) */

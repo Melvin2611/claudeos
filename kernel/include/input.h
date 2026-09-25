@@ -24,6 +24,8 @@ void input_kick(void);                            /* wake the window server */
 void input_set_waiter(struct waitq *wq);
 
 void ps2_init(void);
+void kbd_key(int keycode, bool released);        /* feed a key transition (USB keyboards) */
+uint32_t kbd_mods(void);
 int kbd_set_layout(const char *name);
 const char *kbd_get_layout(void);
 uint32_t keymap_translate(int keycode, uint32_t mods, bool *dead);

@@ -246,6 +246,12 @@ class Machine:
             elif op == "expect":
                 if not re.search(arg, self.log()):
                     raise AssertionError("expected %r in serial log" % arg)
+            elif op == "qmp":
+                # qmp:command {json arguments}
+                name, _, js = arg.partition(" ")
+                print("qmp", name, self.qmp.cmd(name, **(json.loads(js) if js else {})))
+            elif op == "hmp":
+                print(self.qmp.cmd("human-monitor-command", **{"command-line": arg}))
             elif op == "quit":
                 self.quit()
             else:

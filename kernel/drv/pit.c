@@ -2,6 +2,7 @@
 #include <kernel.h>
 #include <cpu.h>
 #include "drivers.h"
+#include <sched.h>
 
 volatile uint64_t ticks;   /* ms since boot */
 static uint32_t pit_hz = 1000;
@@ -41,12 +42,25 @@ void pit_init(uint32_t hz) {
     irq_register(0, pit_irq, 0);
 }
 
-uint64_t uptime_ms(void) { return ticks; }
+/* milliseconds since boot; read from the TSC so it advances even while the boot
+ * CPU cannot take timer interrupts */
+uint64_t uptime_ms(void) {
+    if (tsc_per_ms) {
+        uint64_t t = (rdtsc() - tsc_base) / tsc_per_ms;
+        return t > ticks ? t : ticks;
+    }
+    return ticks;
+}
 
-/* busy-wait delay usable before the scheduler runs */
+/* delay: sleeps (dropping the big kernel lock) when called from a task, spins otherwise */
 void pit_delay_ms(uint32_t ms) {
-    uint64_t end = ticks + ms;
-    if (ints_enabled()) {
+    uint64_t end = uptime_ms() + ms;
+    task_t *cur = current;
+    if (ints_enabled() && cur && cur != this_cpu()->idle && tsc_per_ms) {
+        sleep_ms(ms);
+    } else if (tsc_per_ms) {
+        while (uptime_ms() < end) cpu_pause();
+    } else if (ints_enabled()) {
         while (ticks < end) hlt();
     } else {
         /* interrupts off: poll counter via channel 0 readback, roughly */

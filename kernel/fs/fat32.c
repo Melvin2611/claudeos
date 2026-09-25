@@ -779,16 +779,7 @@ static int fat_sync(mount_t *m) {
 
 static const fs_ops_t fat_fs_ops = { .statfs = fat_statfs, .sync = fat_sync };
 
-static mount_t *fat_mounts[8];
-static int nfat_mounts;
 
-void fs_sync_all(void) {
-    for (int i = 0; i < nfat_mounts; i++) {
-        mutex_lock(&fat_mounts[i]->lock);
-        fat_sync(fat_mounts[i]);
-        mutex_unlock(&fat_mounts[i]->lock);
-    }
-}
 
 int fat_mount(blkdev_t *dev, const char *path) {
     uint8_t *bs = kmalloc(512);
@@ -843,7 +834,6 @@ int fat_mount(blkdev_t *dev, const char *path) {
     snprintf(devname, sizeof(devname), "%s", dev->name);
     int r = vfs_mount(path, root->vn, "fat32", devname, &fat_fs_ops, fs);
     if (r < 0) { kfree(root); kfree(fs); return r; }
-    if (nfat_mounts < 8) fat_mounts[nfat_mounts++] = root->vn->mnt;
     dev->mounted = true;
     klog("[fat] %s mounted on %s: %u clusters of %u bytes, label '%s'\n", dev->name, path, fs->nclusters, fs->cbytes,
          fs->label);

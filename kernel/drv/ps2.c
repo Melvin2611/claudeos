@@ -103,7 +103,10 @@ static bool e0_prefix;
 static uint32_t dead_key;
 static uint8_t e1_skip;
 
+static bool ps2_kbd_present;
+
 static void kbd_leds(void) {
+    if (!ps2_kbd_present) return;
     uint8_t leds = ((mods & MOD_CAPS) ? 4 : 0) | ((mods & MOD_NUM) ? 2 : 0);
     ctrl_data(0xED);
     ctrl_data(leds);
@@ -119,6 +122,8 @@ static void emit_key(int kc, bool pressed, uint32_t ch) {
     input_push(&ev);
 }
 
+void kbd_key(int kc, bool released);
+
 static void kbd_byte(uint8_t sc) {
     if (e1_skip) { e1_skip--; return; }     /* Pause key sequence */
     if (sc == 0xE1) { e1_skip = 5; return; }
@@ -131,6 +136,11 @@ static void kbd_byte(uint8_t sc) {
         if (kc == 0x2A || kc == 0x36) return;   /* fake shifts */
         kc |= 0x80;
     }
+    kbd_key(kc, released);
+}
+
+/* one decoded key transition (PS/2 or USB keyboards) */
+void kbd_key(int kc, bool released) {
     uint32_t bit = 0;
     switch (kc) {
     case KEY_LSHIFT: case KEY_RSHIFT: bit = MOD_SHIFT; break;
@@ -180,6 +190,8 @@ static void kbd_byte(uint8_t sc) {
     }
     emit_key(kc, true, ch);
 }
+
+uint32_t kbd_mods(void) { return mods; }
 
 /* ------------------------------------------------------------------ mouse */
 static uint8_t mpacket[4];
@@ -298,7 +310,7 @@ void ps2_init(void) {
     /* keyboard: defaults + enable scanning */
     flush();
     kbd_cmd(0xF6);
-    kbd_cmd(0xF4);
+    ps2_kbd_present = kbd_cmd(0xF4) == 0;
     kbd_leds();
     flush();
 

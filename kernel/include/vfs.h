@@ -50,6 +50,7 @@ struct file {
 typedef struct fs_ops {
     int (*statfs)(mount_t *m, kstatfs_t *out);
     int (*sync)(mount_t *m);
+    void (*umount)(mount_t *m);
 } fs_ops_t;
 
 struct mount {
@@ -67,6 +68,7 @@ struct mount {
 void vfs_init(void);
 int vfs_mount(const char *path, vnode_t *root, const char *fstype, const char *device, const fs_ops_t *ops, void *priv);
 mount_t *vfs_mounts(void);
+int vfs_umount(const char *path);
 
 vnode_t *vnode_alloc(int type, const vnode_ops_t *ops, void *priv);
 void vnode_ref(vnode_t *vn);

@@ -32,6 +32,12 @@ void blk_register(blkdev_t *d) {
 
 blkdev_t *blk_list(void) { return devices; }
 
+void blk_unregister(blkdev_t *d) {
+    for (blkdev_t **pp = &devices; *pp; pp = &(*pp)->next) {
+        if (*pp == d) { *pp = d->next; return; }
+    }
+}
+
 blkdev_t *blk_find(const char *name) {
     for (blkdev_t *d = devices; d; d = d->next)
         if (!strcmp(d->name, name)) return d;

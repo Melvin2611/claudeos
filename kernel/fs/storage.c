@@ -67,6 +67,27 @@ int fs_mount_any(blkdev_t *d, const char *path, const char **fstype) {
     return -EINVAL;
 }
 
+/* a removable disk went away: unmount its file systems and forget its devices */
+void storage_disk_removed(blkdev_t *disk) {
+    for (;;) {
+        blkdev_t *victim = 0;
+        for (blkdev_t *d = blk_list(); d; d = d->next)
+            if (d == disk || d->parent == disk) { victim = d; break; }
+        if (!victim) break;
+        for (mount_t *m = vfs_mounts(); m; m = m->next) {
+            if (!strcmp(m->device, victim->name)) {
+                char path[64];
+                strlcpy(path, m->path, sizeof(path));
+                vfs_umount(path);
+                vfs_rmdir(path);
+                break;
+            }
+        }
+        victim->mounted = false;
+        blk_unregister(victim);
+    }
+}
+
 static bool has_partitions(blkdev_t *d) {
     for (blkdev_t *p = blk_list(); p; p = p->next)
         if (p->parent == d) return true;
