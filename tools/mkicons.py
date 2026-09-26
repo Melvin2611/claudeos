@@ -325,6 +325,24 @@ def icon_network(img):
     d.line([(56, 128), (200, 128)], fill=(255, 255, 255, 255), width=10)
 
 
+def icon_browser(img):
+    # a blue globe with a compass needle
+    grad = vgrad((S, S), hexc("#60A5FA"), hexc("#1D4ED8"))
+    mask = Image.new("L", (S, S), 0)
+    ImageDraw.Draw(mask).ellipse([16, 16, 240, 240], fill=255)
+    img.paste(grad, (0, 0), mask)
+    d = ImageDraw.Draw(img)
+    w = (255, 255, 255, 170)
+    d.ellipse([40, 40, 216, 216], outline=w, width=8)
+    d.ellipse([88, 40, 168, 216], outline=w, width=8)
+    d.line([(40, 128), (216, 128)], fill=w, width=8)
+    d.line([(56, 84), (200, 84)], fill=w, width=6)
+    d.line([(56, 172), (200, 172)], fill=w, width=6)
+    d.polygon([(128, 128), (176, 64), (150, 142)], fill=hexc("#F97316"))
+    d.polygon([(128, 128), (80, 192), (106, 114)], fill=(255, 255, 255, 255))
+    d.ellipse([118, 118, 138, 138], fill=hexc("#1E293B"))
+
+
 def icon_clock(img):
     grad = vgrad((S, S), hexc("#F8FAFC"), hexc("#D5DBE5"))
     mask = Image.new("L", (S, S), 0)
@@ -344,7 +362,7 @@ COLOR_ICONS = {
     "mines": icon_mines, "snake": icon_snake, "tetris": icon_tetris, "file": icon_file,
     "file-text": icon_file_text, "file-image": icon_file_image, "file-audio": icon_file_audio,
     "file-exec": icon_file_exec, "drive": icon_drive, "home": icon_home, "trash": icon_trash,
-    "network": icon_network, "clock": icon_clock,
+    "network": icon_network, "clock": icon_clock, "browser": icon_browser,
 }
 
 # ----------------------------------------------------------------------------- glyphs (white, tinted at runtime)

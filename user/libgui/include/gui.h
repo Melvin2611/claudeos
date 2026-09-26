@@ -211,6 +211,10 @@ uint32_t ui_bg(void);
 bool ui_is_retro(void);
 void ui_bevel(surface_t *s, rect_t r, bool sunken);
 
+/* images: decode PNG/JPEG/GIF/BMP (malloc'd 0xAARRGGBB) and resize */
+uint32_t *ui_decode_image(const void *data, size_t len, int *w, int *h);
+uint32_t *ui_scale_image(const uint32_t *src, int sw, int sh, int dw, int dh);
+
 /* misc */
 const char *ui_basename(const char *path);
 char *ui_read_file(const char *path, size_t *size);      /* malloc'd, NUL terminated */
