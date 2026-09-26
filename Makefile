@@ -38,6 +38,14 @@ LIBGUI_SRC := $(wildcard user/libgui/src/*.c)
 LIBGUI_OBJ := $(LIBGUI_SRC:%.c=$(BUILD)/%.o)
 LIBGUI    := $(BUILD)/user/libgui.a
 
+# TLS: vendored BearSSL + the libtls wrapper and trust anchors
+TLS_SRC   := $(shell find user/bearssl/src -name '*.c') $(wildcard user/libtls/*.c)
+TLS_OBJ   := $(TLS_SRC:%.c=$(BUILD)/%.o)
+LIBTLS    := $(BUILD)/user/libtls.a
+TLSFLAGS  := -Iuser/bearssl/inc -Iuser/bearssl/src -DBR_USE_URANDOM=0 -DBR_USE_GETENTROPY=0 \
+	-DBR_USE_UNIX_TIME=1 -DBR_RDRAND=0 -DBR_AES_X86NI=0 -DBR_SSE2=0 -DBR_POWER8=0 -DBR_INT128=1 \
+	-Wno-unused-function -Wno-implicit-fallthrough -Wno-old-style-declaration
+
 BIN_SRC   := $(wildcard user/bin/*.c)
 BINS      := $(BIN_SRC:user/bin/%.c=$(BUILD)/bin/%)
 APP_DIRS  := $(patsubst %/,%,$(sort $(dir $(wildcard user/apps/*/*.c))))
@@ -68,6 +76,12 @@ $(KERNEL): $(KOBJ) kernel/linker.ld
 	@nm -n $@ | grep -i ' [tw] ' > $(BUILD)/kernel.sym || true
 
 # userland objects
+$(BUILD)/user/bearssl/%.o: user/bearssl/%.c
+	@mkdir -p $(dir $@)
+	$(CC) $(UCFLAGS) -O2 $(TLSFLAGS) -c $< -o $@
+$(BUILD)/user/libtls/%.o: user/libtls/%.c
+	@mkdir -p $(dir $@)
+	$(CC) $(UCFLAGS) $(TLSFLAGS) -c $< -o $@
 $(BUILD)/user/%.o: user/%.c
 	@mkdir -p $(dir $@)
 	$(CC) $(UCFLAGS) -c $< -o $@
@@ -81,21 +95,24 @@ $(CRT0): user/libc/crt0.asm
 $(LIBC): $(LIBC_OBJ)
 	@mkdir -p $(dir $@)
 	rm -f $@ && ar rcs $@ $^
+$(LIBTLS): $(TLS_OBJ)
+	@mkdir -p $(dir $@)
+	rm -f $@ && ar rcs $@ $^
 $(LIBGUI): $(LIBGUI_OBJ)
 	@mkdir -p $(dir $@)
 	rm -f $@ && ar rcs $@ $^
 
 ULINK = $(LD) -nostdlib -static -z max-page-size=0x1000 -T user/user.ld
 
-$(BUILD)/bin/%: $(BUILD)/user/bin/%.o $(CRT0) $(LIBC) $(LIBGUI) user/user.ld
+$(BUILD)/bin/%: $(BUILD)/user/bin/%.o $(CRT0) $(LIBC) $(LIBGUI) $(LIBTLS) user/user.ld
 	@mkdir -p $(dir $@)
-	$(ULINK) -o $@ $(CRT0) $< $(LIBGUI) $(LIBC) $(LIBGCC)
+	$(ULINK) -o $@ $(CRT0) $< $(LIBGUI) $(LIBTLS) $(LIBC) $(LIBGCC)
 	strip -s $@
 
 define APP_RULE
-$(BUILD)/apps/$(1): $(patsubst user/%.c,$(BUILD)/user/%.o,$(wildcard user/apps/$(1)/*.c)) $(CRT0) $(LIBC) $(LIBGUI) user/user.ld
+$(BUILD)/apps/$(1): $(patsubst user/%.c,$(BUILD)/user/%.o,$(wildcard user/apps/$(1)/*.c)) $(CRT0) $(LIBC) $(LIBGUI) $(LIBTLS) user/user.ld
 	@mkdir -p $$(dir $$@)
-	$$(ULINK) -o $$@ $$(CRT0) $(patsubst user/%.c,$(BUILD)/user/%.o,$(wildcard user/apps/$(1)/*.c)) $$(LIBGUI) $$(LIBC) $$(LIBGCC)
+	$$(ULINK) -o $$@ $$(CRT0) $(patsubst user/%.c,$(BUILD)/user/%.o,$(wildcard user/apps/$(1)/*.c)) $$(LIBGUI) $$(LIBTLS) $$(LIBC) $$(LIBGCC)
 	strip -s $$@
 endef
 $(foreach a,$(APP_DIRS:user/apps/%=%),$(eval $(call APP_RULE,$(a))))
