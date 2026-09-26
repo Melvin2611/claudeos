@@ -391,7 +391,7 @@ static bool wait_on(sock_t *s, uint64_t deadline) {
     if (now < deadline) wq_wait_timeout(&s->wq, MIN(deadline - now, 200));
     irq_restore(f);
     mutex_lock(&net_lock);
-    return !current->killed && uptime_ms() < deadline;
+    return !task_interrupted(current) && uptime_ms() < deadline;
 }
 
 static long tcp_recv(sock_t *s, file_t *f, void *buf, size_t n, uint64_t timeout) {
@@ -400,7 +400,7 @@ static long tcp_recv(sock_t *s, file_t *f, void *buf, size_t n, uint64_t timeout
     tcb_t *t = s->tcb;
     while (t && !t->rcount && !t->fin_received && t->state != TCP_CLOSED) {
         if (f && (f->flags & O_NONBLOCK)) { mutex_unlock(&net_lock); return -EAGAIN; }
-        if (!wait_on(s, deadline)) { mutex_unlock(&net_lock); return current->killed ? -EINTR : -ETIMEDOUT; }
+        if (!wait_on(s, deadline)) { mutex_unlock(&net_lock); return task_interrupted(current) ? -EINTR : -ETIMEDOUT; }
         t = s->tcb;
     }
     if (!t) { mutex_unlock(&net_lock); return -ENOTCONN; }
@@ -598,7 +598,7 @@ SYSCALL_DEF(sys_recvfrom) {
     mutex_lock(&net_lock);
     while (!s->qn) {
         if (f->flags & O_NONBLOCK) { mutex_unlock(&net_lock); return -EAGAIN; }
-        if (!wait_on(s, deadline)) { mutex_unlock(&net_lock); return current->killed ? -EINTR : -ETIMEDOUT; }
+        if (!wait_on(s, deadline)) { mutex_unlock(&net_lock); return task_interrupted(current) ? -EINTR : -ETIMEDOUT; }
     }
     dgram_t *d = s->q[s->qh];
     s->qh = (s->qh + 1) % UDP_QLEN;

@@ -22,6 +22,8 @@ isr_common:
     jz .from_kernel
     swapgs
 .from_kernel:
+global isr_common_saved
+isr_common_saved:
     push rax
     push rbx
     push rcx
@@ -63,6 +65,22 @@ trap_return:
     swapgs
 .to_kernel:
     iretq
+
+; entry of the "syscall" instruction (Linux programs): build the same frame as an
+; interrupt (vector 0x81) and continue in the common path; the return uses iretq.
+global syscall_entry
+syscall_entry:
+    swapgs
+    mov [gs:16], rsp                ; user rsp
+    mov rsp, [gs:24]                ; kernel stack of the current task
+    push 0x1B                       ; ss
+    push qword [gs:16]              ; rsp
+    push r11                        ; rflags
+    push 0x23                       ; cs
+    push rcx                        ; rip
+    push 0                          ; error code
+    push 0x81                       ; vector
+    jmp isr_common_saved
 
 section .rodata
 global isr_stub_table

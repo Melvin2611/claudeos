@@ -36,6 +36,7 @@ extern uint64_t kernel_pml4;
 void vmm_init(void);
 uint64_t vmm_new_space(void);                       /* returns PML4 phys */
 void vmm_free_space(uint64_t pml4);                 /* frees user half */
+int vmm_clone_user(uint64_t src, uint64_t dst);      /* copy every user page (fork) */
 bool vmm_map(uint64_t pml4, uint64_t va, uint64_t pa, uint64_t flags);
 uint64_t vmm_unmap(uint64_t pml4, uint64_t va);     /* returns old PTE */
 uint64_t vmm_get_pte(uint64_t pml4, uint64_t va);   /* 0 if not mapped */

@@ -200,7 +200,7 @@ int icmp_ping(uint32_t dst, uint16_t seq, uint64_t timeout_ms) {
         uint64_t f = irq_save();
         wq_wait_timeout(&ping_wq, 20);
         irq_restore(f);
-        if (current->killed) return -EINTR;
+        if (task_interrupted(current)) return -EINTR;
     }
     return -ETIMEDOUT;
 }
@@ -444,7 +444,7 @@ int dns_resolve(const char *name, uint32_t *ip) {
             uint64_t f = irq_save();
             wq_wait_timeout(&dns_wq, 50);
             irq_restore(f);
-            if (current->killed) return -EINTR;
+            if (task_interrupted(current)) return -EINTR;
         }
         if (dns_rcode == 0) {
             *ip = dns_answer;

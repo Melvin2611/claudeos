@@ -115,7 +115,7 @@ static long m_read(vnode_t *vn, file_t *f, void *buf, size_t n, uint64_t off) {
     while (p->out.count == 0) {
         if (p->slaves == 0) { irq_restore(fl); return 0; }
         if (f->flags & O_NONBLOCK) { irq_restore(fl); return -EAGAIN; }
-        if (current->killed) { irq_restore(fl); return -EINTR; }
+        if (task_interrupted(current)) { irq_restore(fl); return -EINTR; }
         wq_wait(&p->out_wq);
     }
     size_t r = ring_get(&p->out, buf, n);
@@ -161,7 +161,7 @@ static long s_read(vnode_t *vn, file_t *f, void *buf, size_t n, uint64_t off) {
         if (p->eof_pending) { p->eof_pending--; irq_restore(fl); return 0; }
         if (p->masters == 0) { irq_restore(fl); return 0; }
         if (f->flags & O_NONBLOCK) { irq_restore(fl); return -EAGAIN; }
-        if (current->killed) { irq_restore(fl); return -EINTR; }
+        if (task_interrupted(current)) { irq_restore(fl); return -EINTR; }
         wq_wait(&p->in_wq);
     }
     size_t r = 0;
@@ -187,7 +187,7 @@ static long s_write(vnode_t *vn, file_t *f, const void *buf, size_t n, uint64_t 
     while (done < n) {
         if (p->masters == 0) { irq_restore(fl); return done ? (long)done : -EPIPE; }
         if (p->out.count >= PTY_BUF - 2) {
-            if (current->killed) break;
+            if (task_interrupted(current)) break;
             wq_wake_all(&p->out_wq);
             wq_wait_timeout(&p->out_wq, 50);
             continue;

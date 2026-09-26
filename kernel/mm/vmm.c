@@ -104,6 +104,37 @@ void vmm_free_space(uint64_t pml4) {
     pmm_free(pml4);
 }
 
+/* copy the user half of an address space: owned pages are duplicated, others shared */
+int vmm_clone_user(uint64_t src, uint64_t dst) {
+    uint64_t *l4 = P2V(src);
+    for (int i = 0; i < 256; i++) {
+        if (!(l4[i] & PTE_P)) continue;
+        uint64_t *l3 = tbl(l4[i]);
+        for (int j = 0; j < 512; j++) {
+            if (!(l3[j] & PTE_P)) continue;
+            uint64_t *l2 = tbl(l3[j]);
+            for (int k = 0; k < 512; k++) {
+                if (!(l2[k] & PTE_P)) continue;
+                uint64_t *l1 = tbl(l2[k]);
+                for (int m = 0; m < 512; m++) {
+                    uint64_t e = l1[m];
+                    if (!(e & PTE_P)) continue;
+                    uint64_t va = ((uint64_t)i << 39) | ((uint64_t)j << 30) | ((uint64_t)k << 21) | ((uint64_t)m << 12);
+                    uint64_t pa = e & PTE_ADDR;
+                    if (e & PTE_OWNED) {
+                        uint64_t np = pmm_alloc();
+                        if (!np) return -ENOMEM;
+                        memcpy(P2V(np), P2V(pa), PAGE_SIZE);
+                        pa = np;
+                    }
+                    if (!vmm_map(dst, va, pa, e & ~PTE_ADDR & ~PTE_P)) return -ENOMEM;
+                }
+            }
+        }
+    }
+    return 0;
+}
+
 /* ------------------------------------------------------------------ kernel space setup */
 
 static void map_2m(uint64_t *l4, uint64_t va, uint64_t pa, uint64_t flags) {

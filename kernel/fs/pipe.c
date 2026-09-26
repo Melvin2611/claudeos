@@ -18,7 +18,7 @@ static long p_read(vnode_t *vn, file_t *f, void *buf, size_t n, uint64_t off) {
     while (p->count == 0) {
         if (p->writers == 0) { irq_restore(fl); return 0; }
         if (f->flags & O_NONBLOCK) { irq_restore(fl); return -EAGAIN; }
-        if (current->killed) { irq_restore(fl); return -EINTR; }
+        if (task_interrupted(current)) { irq_restore(fl); return -EINTR; }
         wq_wait(&p->rq);
     }
     size_t m = MIN(n, p->count);
@@ -43,7 +43,7 @@ static long p_write(vnode_t *vn, file_t *f, const void *buf, size_t n, uint64_t 
         if (p->readers == 0) { irq_restore(fl); return done ? (long)done : -EPIPE; }
         if (p->count == PIPE_SIZE) {
             if (f->flags & O_NONBLOCK) break;
-            if (current->killed) { irq_restore(fl); return done ? (long)done : -EINTR; }
+            if (task_interrupted(current)) { irq_restore(fl); return done ? (long)done : -EINTR; }
             wq_wait(&p->wq);
             continue;
         }

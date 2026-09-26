@@ -38,6 +38,14 @@ typedef struct task {
     uint64_t clear_tid;           /* user address zeroed + futex-woken when the thread exits */
     uint64_t futex_key, futex_cr3;
 
+    /* Linux compatibility (process-wide fields are used on the leader) */
+    bool linux_abi;
+    struct vma *vmas;             /* mmap regions */
+    struct ksigaction *sigact;    /* 65 entries, allocated on first use */
+    uint64_t sigmask, sigpending; /* per thread */
+    uint32_t umask;
+    uint64_t alt_stack, alt_stack_size;
+
     /* scheduling bookkeeping */
     uint64_t wake_at;
     bool timed_out;
@@ -64,6 +72,9 @@ typedef struct task {
 
 #define current ((task_t *)get_current())
 #define PROC(t) ((t)->leader)
+
+/* a blocking call should give up: the task is being killed or has a deliverable signal */
+#define task_interrupted(t) ((t)->killed || ((t)->sigpending & ~(t)->sigmask))
 
 void sched_init(void);
 task_t *kthread_create(const char *name, int (*fn)(void *), void *arg);

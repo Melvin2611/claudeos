@@ -9,3 +9,7 @@ _start:
     call __libc_start
 .hang:
     jmp .hang
+
+; marks the binary as a ClaudeOS program (anything without it runs with the Linux ABI)
+section .note.claudeos noalloc
+    db "ClaudeOS", 0

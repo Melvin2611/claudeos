@@ -122,6 +122,11 @@ void isr_dispatch(regs_t *r) {
         sti();
         syscall_dispatch(r);
         cli();
+    } else if (v == 0x81) {
+        extern void linux_syscall(regs_t *r);
+        sti();
+        linux_syscall(r);
+        cli();
     } else if (v == VEC_LAPIC_TIMER) {
         lapic_eoi();
         sched_tick_local();

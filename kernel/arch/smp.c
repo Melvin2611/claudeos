@@ -283,8 +283,7 @@ void msi_dispatch(uint8_t vector) {
 extern char ap_trampoline_start[], ap_trampoline_end[], ap_trampoline_data[];
 #define TRAMPOLINE_PHYS 0x8000
 
-void syscall_cpu_init(void) __attribute__((weak));
-void syscall_cpu_init(void) {}
+void syscall_cpu_init(void);
 
 static void ap_entry(cpu_t *c) {
     cpu_setup_percpu(c);

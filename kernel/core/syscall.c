@@ -93,7 +93,7 @@ SYSCALL_DEF(sys_waitpid) {
 SYSCALL_DEF(sys_getpid) { SYSCALL_UNUSED_ARGS; return PROC(current)->pid; }
 SYSCALL_DEF(sys_getppid) { SYSCALL_UNUSED_ARGS; return PROC(current)->ppid; }
 SYSCALL_DEF(sys_kill) { SYSCALL_UNUSED_ARGS; return proc_kill((int)a1, (int)a2); }
-SYSCALL_DEF(sys_sleep) { SYSCALL_UNUSED_ARGS; sleep_ms(a1); return current->killed ? -EINTR : 0; }
+SYSCALL_DEF(sys_sleep) { SYSCALL_UNUSED_ARGS; sleep_ms(a1); return task_interrupted(current) ? -EINTR : 0; }
 SYSCALL_DEF(sys_yield) { SYSCALL_UNUSED_ARGS; yield(); return 0; }
 SYSCALL_DEF(sys_sbrk) { SYSCALL_UNUSED_ARGS; return proc_sbrk((long)a1); }
 SYSCALL_DEF(sys_uptime) { SYSCALL_UNUSED_ARGS; return (long)uptime_ms(); }
@@ -487,7 +487,7 @@ SYSCALL_DEF(sys_poll) {
         }
         bool gui = (a4 & POLL_GUI) && gui_event_pending(current);
         if (ready || gui) return ready + (gui ? 1 : 0);
-        if (current->killed) return -EINTR;
+        if (task_interrupted(current)) return -EINTR;
         uint64_t now = uptime_ms();
         if (now >= deadline) return 0;
         uint64_t f = irq_save();
@@ -496,7 +496,19 @@ SYSCALL_DEF(sys_poll) {
     }
 }
 
+/* enable the "syscall" instruction on this CPU (used by Linux programs) */
+void syscall_cpu_init(void) {
+    extern void syscall_entry(void);
+    wrmsr(0xC0000080, rdmsr(0xC0000080) | 1);                 /* EFER.SCE */
+    wrmsr(0xC0000081, (uint64_t)KERNEL_CS << 32);             /* STAR: kernel CS/SS */
+    wrmsr(0xC0000082, (uint64_t)syscall_entry);               /* LSTAR */
+    wrmsr(0xC0000084, 0x47700);                               /* FMASK: IF, DF, TF, AC, NT */
+}
+
+syscall_fn syscall_get(int num) { return num >= 0 && num < SYS_MAX ? table[num] : 0; }
+
 void syscall_init(void) {
+    syscall_cpu_init();
     syscall_register(SYS_EXIT, sys_exit);
     syscall_register(SYS_SPAWN, sys_spawn);
     syscall_register(SYS_WAITPID, sys_waitpid);

@@ -11,5 +11,6 @@ SECTIONS
     .data : { *(.data .data.*) }
     .bss : { *(COMMON) *(.bss .bss.*) }
     _end = .;
+    .note.claudeos 0 : { KEEP(*(.note.claudeos)) }
     /DISCARD/ : { *(.comment) *(.note .note.*) *(.eh_frame .eh_frame_hdr) }
 }

@@ -91,9 +91,9 @@ task_t *task_alloc(const char *name) {
     t->kstack = vmalloc(KSTACK_SIZE);
     if (!t->kstack) { kfree(t); return 0; }
     t->kstack_top = (uint64_t)t->kstack + KSTACK_SIZE;
-    t->fpu_alloc = kmalloc(512 + 16);
-    t->fpu = (uint8_t *)ALIGN_UP((uint64_t)t->fpu_alloc, 16);
-    memcpy(t->fpu, fpu_initial_state, 512);
+    t->fpu_alloc = kmalloc(fpu_size + 64);
+    t->fpu = (uint8_t *)ALIGN_UP((uint64_t)t->fpu_alloc, 64);
+    memcpy(t->fpu, fpu_initial_state, fpu_size);
     strlcpy(t->name, name, sizeof(t->name));
     t->cr3 = kernel_pml4;
     t->start_ms = uptime_ms();
@@ -234,8 +234,8 @@ void schedule(void) {
     c->cur = next;
     c->prev = prev;
     next->cpu = c->id;
-    fxsave(prev->fpu);
-    fxrstor(next->fpu);
+    fpu_save(prev->fpu);
+    fpu_restore(next->fpu);
     tss_set_rsp0(next->kstack_top);
     if (next->cr3 != read_cr3()) write_cr3(next->cr3);
     set_user_bases(prev, next);
@@ -301,6 +301,10 @@ void sched_trap_exit(regs_t *r) {
     cpu_t *c = this_cpu();
     if (c->need_resched && c->cur) schedule();
     if (regs_from_user(r) && current->killed) proc_check_killed(r);
+    if (regs_from_user(r) && (current->sigpending & ~current->sigmask)) {
+        extern void linux_deliver_signals(regs_t *r);
+        linux_deliver_signals(r);
+    }
 }
 
 static void add_sleeper(task_t *t, uint64_t ms) {

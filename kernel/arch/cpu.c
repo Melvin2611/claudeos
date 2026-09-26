@@ -2,6 +2,8 @@
 #include <kernel.h>
 #include <cpu.h>
 #include <smp.h>
+bool cmdline_has(const char *opt);
+static bool cmdline_has_opt(const char *o) { return cmdline_has(o); }
 
 typedef struct {
     uint32_t reserved0;
@@ -28,7 +30,9 @@ static idt_entry_t idt[256];
 static uint8_t df_stack[16384] __attribute__((aligned(16)));
 static uint8_t nmi_stack[8192] __attribute__((aligned(16)));
 
-uint8_t fpu_initial_state[512] __attribute__((aligned(16)));
+uint8_t fpu_initial_state[4096] __attribute__((aligned(64)));
+uint32_t fpu_size = 512;
+bool fpu_xsave;
 char cpu_vendor[13];
 uint64_t cpu_mhz;
 static bool has_nx;
@@ -148,11 +152,24 @@ void cpu_init_features(void) {
         wrmsr(0x277, pat);
     }
 
+    /* AVX (and AVX-512) through XSAVE: Linux programs built for x86-64-v3 need it */
+    cpuid(1, 0, &a, &b, &c, &d);
+    if ((c & (1u << 26)) && !cmdline_has_opt("noxsave")) {
+        write_cr4(read_cr4() | (1ULL << 18));                  /* OSXSAVE */
+        uint32_t sa, sb, sc, sd;
+        cpuid(0xD, 0, &sa, &sb, &sc, &sd);
+        uint64_t xcr0 = 3;                                      /* x87 + SSE */
+        if (c & (1u << 28)) xcr0 |= 4;                          /* AVX */
+        if ((sa & 0xE0) == 0xE0 && (xcr0 & 4)) xcr0 |= 0xE0;    /* AVX-512 */
+        __asm__ volatile("xsetbv" :: "c"(0), "a"((uint32_t)xcr0), "d"((uint32_t)(xcr0 >> 32)));
+        cpuid(0xD, 0, &sa, &sb, &sc, &sd);
+        if (sb <= sizeof(fpu_initial_state)) { fpu_size = sb; fpu_xsave = true; }
+    }
     __asm__ volatile("fninit");
     uint32_t mxcsr = 0x1F80;
     __asm__ volatile("ldmxcsr %0" :: "m"(mxcsr));
     static bool saved;
-    if (!saved) { fxsave(fpu_initial_state); saved = true; }
+    if (!saved) { memset(fpu_initial_state, 0, sizeof(fpu_initial_state)); fpu_save(fpu_initial_state); saved = true; }
 }
 
 bool cpu_has_nx(void) { return has_nx; }
