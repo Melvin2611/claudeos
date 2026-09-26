@@ -428,6 +428,7 @@ SYSCALL_DEF(sys_statfs) {
 
 SYSCALL_DEF(sys_fsync) {
     SYSCALL_UNUSED_ARGS;
+    if ((int)a1 == -1) { extern void fs_sync_all(void); fs_sync_all(); return 0; }   /* sync everything */
     file_t *f = fd_get(current, (int)a1);
     if (!f) return -EBADF;
     if (f->vn->mnt && f->vn->mnt->ops && f->vn->mnt->ops->sync) {
